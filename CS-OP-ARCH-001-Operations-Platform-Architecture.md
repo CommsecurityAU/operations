@@ -7,7 +7,7 @@
 | **Revision** | **Draft** \| Released \| Final |
 | **Author** | Richard Roberts |
 | **Date** | 19 August 2026 |
-| **Related** | CS-OP-SOW-001 (Operations — Scope of Works) |
+| **Related** | CS-OP-SOW-001 (Operations — Scope of Works, Nov 2025 — partially superseded, see §2.1) |
 
 ---
 
@@ -32,6 +32,8 @@ The platform serves **three legal entities** — CommSecurity Smart Buildings Pt
 | **Google Sheets** (3 workbooks) | System of record for projects, forecast invoicing, procurement, project & office expenses, dashboard | Retired as system of record; optional read-only export during transition |
 | **Xero** | Accounting system of record — AR invoices, AP bills, spend money, contacts | Remains system of record for **actuals**. Read via API (access pending) |
 | **iTrade** | Job Number issuance, Supplier POs, timesheets | Job Numbers and Supplier POs migrate to this platform. Timesheets remain in iTrade for now |
+
+> **On CS-OP-SOW-001.** The SOW remains the reference for Xero API endpoints and field mappings (§7.3), which are properties of the Xero API and still hold. Its *business-level* content is dated November 2025 and has drifted: the Business Filters section lists project categories (Security / Service / CSSB / CSSB Service) that no longer match the live taxonomy, confirmed 19 Aug 2026. Treat business rules in that document as requiring confirmation; treat the API mappings as sound until tested against real data.
 
 ### 2.2 The problem, stated plainly
 
@@ -236,7 +238,7 @@ These are currently implicit in the spreadsheets and are a recurring source of d
 - **Derived vs entered office expenses.** Payroll tax, WorkCover and superannuation are *computed from wages*, not typed in. `office_expense_line.is_derived` plus a rule reference makes this visible, so a wage change automatically flows to seven downstream lines instead of requiring seven edits.
 - **Contract value vs invoiceable value.** These currently diverge (see `PDNSW - SOC`: $518,400 PO against $259,200 FY27). Contract value lives on the project; the FY split is derived from claim lines. One number, one place.
 - **Multiple POs per project.** The model supports it; the sheets assume one.
-- **Project type is a work category, not a division.** Two classification systems are currently in play and they collide. The Operations workbook uses `Type` = ICN, IBP, EMS, NSW, Consulting, Service, Security, Q-Access, R&D. CS-OP-SOW-001 defines the Xero project `Name` filter as Security, Service, CSSB, CSSB Service — which reads as a **division/entity** marker, not a work category. `Security` and `Service` appear in both lists meaning different things. These separate: `project.entity_id` carries the legal entity (§5.2), `project.type_id` carries the work category, and the Xero `Name` value is mapped at STP-6 rather than stored as a third overlapping concept.
+- **Project type is a work category, and there is one taxonomy.** `Type` = ICN, IBP, EMS, NSW, Consulting, Service, Security, Q-Access, R&D, as used in the Operations workbook. CS-OP-SOW-001's alternative list (Security / Service / CSSB / CSSB Service) is **superseded** — see the note in §2.1. Type is a work category only; the legal entity is carried by `project.entity_id` (§5.2) and the two are never conflated. `project_type` is a reference table rather than an enum, so categories can be added without a deploy.
 
 ### 5.6 Documents & attachments
 
@@ -544,6 +546,7 @@ Phases ship to the internal server and are used in anger before the next begins.
 
 **Proposal.**
 - Migration `001`: `entity`, `period` (seeded FY24–FY35, month 1 = July), `client`, `project_type`, `project_status`, `project`, `job_code_alias`, `user_entity_role`, `number_sequence`
+- `project_type` seeded with the nine live categories: ICN, IBP, EMS, NSW, Consulting, Service, Security, Q-Access, R&D
 - All three entities seeded from company records (§5.2); RAVEN BOX pending its ABN
 - `entity_id NOT NULL` on every fact table from the outset; entity selector hidden in the UI (ADR-07)
 - Uniqueness and format of job codes enforced by database constraint, not application code

@@ -128,7 +128,7 @@ The platform serves **three legal entities**, not one:
 
 | Entity | ABN | Role |
 |---|---|---|
-| **CommSecurity Smart Buildings Pty Ltd** | 19 677 520 339 (ACN 677 520 339) | Primary entity. Owns the current project portfolio |
+| **CommSecurity Smart Buildings Pty Ltd** (CSSB) | 19 677 520 339 (ACN 677 520 339) | Primary entity. **Confirmed owner of all 49 current projects** and the entire FY26/FY27 portfolio |
 | **CommSecurity Pty Ltd** | 42 636 706 146 | Separate trading entity |
 | **RAVEN BOX** | *TBC* | Product entity — see the caveat below |
 
@@ -236,6 +236,7 @@ These are currently implicit in the spreadsheets and are a recurring source of d
 - **Derived vs entered office expenses.** Payroll tax, WorkCover and superannuation are *computed from wages*, not typed in. `office_expense_line.is_derived` plus a rule reference makes this visible, so a wage change automatically flows to seven downstream lines instead of requiring seven edits.
 - **Contract value vs invoiceable value.** These currently diverge (see `PDNSW - SOC`: $518,400 PO against $259,200 FY27). Contract value lives on the project; the FY split is derived from claim lines. One number, one place.
 - **Multiple POs per project.** The model supports it; the sheets assume one.
+- **Project type is a work category, not a division.** Two classification systems are currently in play and they collide. The Operations workbook uses `Type` = ICN, IBP, EMS, NSW, Consulting, Service, Security, Q-Access, R&D. CS-OP-SOW-001 defines the Xero project `Name` filter as Security, Service, CSSB, CSSB Service — which reads as a **division/entity** marker, not a work category. `Security` and `Service` appear in both lists meaning different things. These separate: `project.entity_id` carries the legal entity (§5.2), `project.type_id` carries the work category, and the Xero `Name` value is mapped at STP-6 rather than stored as a third overlapping concept.
 
 ### 5.6 Documents & attachments
 
@@ -537,7 +538,7 @@ Phases ship to the internal server and are used in anger before the next begins.
 
 ### STP-1 — Project register & Job Number authority
 
-**Situation.** 49 active projects live in the Project List tab, carrying $7,299,574 of contract value with the FY26/FY27 split maintained by hand. Job codes are unreliable — `TBA`, `Various`, `na`, `JN 5108` (space instead of hyphen), `P-3655` against the `JN-` convention, and both `JN-676` and `JN-5416` appearing against two unrelated projects each. Job numbers are issued by iTrade. Because every other system joins on this key, every downstream integration inherits the ambiguity. The workbooks are also entity-blind: they do not record which of the three legal entities owns a project, and at least one line (`COMMSecurity Labour`) is already an internal cross-entity charge.
+**Situation.** 49 active projects live in the Project List tab, carrying $7,299,574 of contract value with the FY26/FY27 split maintained by hand. Job codes are unreliable — `TBA`, `Various`, `na`, `JN 5108` (space instead of hyphen), `P-3655` against the `JN-` convention, and both `JN-676` and `JN-5416` appearing against two unrelated projects each. Job numbers are issued by iTrade. Because every other system joins on this key, every downstream integration inherits the ambiguity. The workbooks are entity-blind — they do not record which legal entity owns a project — though this has since been confirmed as CSSB for all 49. Overheads are a separate matter: at least one line (`COMMSecurity Labour`) is already an internal cross-entity charge.
 
 **Target.** This platform is authoritative for projects and job numbers. Every active project carries exactly one valid, unique job code **and one owning entity**. A project cannot exist without an entity, client, type and lead.
 
@@ -546,10 +547,10 @@ Phases ship to the internal server and are used in anger before the next begins.
 - All three entities seeded from company records (§5.2); RAVEN BOX pending its ABN
 - `entity_id NOT NULL` on every fact table from the outset; entity selector hidden in the UI (ADR-07)
 - Uniqueness and format of job codes enforced by database constraint, not application code
-- Python importer from the Project List tab, emitting **a worklist of every ambiguous code** and **every project whose owning entity is unclear**
+- Python importer from the Project List tab, emitting **a worklist of every ambiguous code**. Entity attribution is not ambiguous: all 49 projects are CSSB (confirmed 19 Aug 2026), so the importer assigns CSSB unconditionally and asserts it
 - Project CRUD and the job number allocator (global sequence)
 
-**Exit criteria.** All 49 projects migrated with zero unresolved job codes and every project attributed to an entity. The next new job number is issued by the platform rather than iTrade. Project List tab read-only.
+**Exit criteria.** All 49 projects migrated with zero unresolved job codes, every project attributed to CSSB. The next new job number is issued by the platform rather than iTrade. Project List tab read-only.
 
 ---
 
@@ -661,7 +662,7 @@ Task trackers, IBP system categories, commissioning checklists — the "120 Balm
 
 ## 13. Open Questions
 
-*Resolved 19 Aug 2026: runtime (Go — ADR-03), host environment (Linux VM + Docker — §9), Supabase (familiarity only, no external constraint — ADR-02).*
+*Resolved 19 Aug 2026: runtime (Go — ADR-03), host environment (Linux VM + Docker — §9), Supabase (familiarity only, no external constraint — ADR-02), entity ownership of the current portfolio (all 49 projects are CSSB — §5.2).*
 
 1. **Corporate tax rate.** The Office Expenses workbook uses 25% in one place and 30% in another. Which applies, and does it vary by FY?
 2. **Google Workspace SSO** — confirm the platform can be registered as an OIDC client in the CommSecurity tenant, and who administers that.
@@ -670,7 +671,7 @@ Task trackers, IBP system categories, commissioning checklists — the "120 Balm
 5. **Internal registry.** Does one exist on the Linux VM estate, or is `docker save` / `scp` the deploy path for now?
 6. **RAVEN BOX details** — ABN, ACN, registered address, and whether it currently has its own Xero organisation.
 7. **RAVEN BOX revenue model.** Unit sales, licence/recurring, R&D cost centre, or project work? This decides whether it needs a revenue fact table beyond `claim_line`, and whether inventory returns to scope (§5.2).
-8. **Entity ownership of the existing portfolio.** Do all 49 active projects belong to Smart Buildings, or is FY26/FY27 history split across both CommSecurity entities?
+8. **Entity attribution of overheads.** Projects are settled (all CSSB), but the Office Expenses workbook is not: it carries ~$1.78M of FY27 overhead including wages for people who serve both CommSecurity entities. Are those costs currently borne wholly by CSSB, or already split?
 9. **Shared overhead allocation.** How should Justin's and Richard's costs be split across entities — fixed percentage, per-project, or borne wholly by one? **Requires accountant input** before STP-4 (§5.2).
 10. **Inter-entity trade.** Does one entity currently invoice another, and if so is it recorded in both Xero organisations?
 11. **Numbering continuity.** Do the second and third entities need invoice and supplier PO sequences that continue existing series, or start fresh?

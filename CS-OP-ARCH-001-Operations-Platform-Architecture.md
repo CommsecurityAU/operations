@@ -17,7 +17,9 @@ This document records the **architectural approach** for the internal Operations
 
 Operational project management (tasks, IBP system categories, commissioning checklists, the "120 Balmain Road" style trackers) is **explicitly deferred**. It is accommodated in the data model but not built in Release 1.
 
-**Out of scope for Release 1:** sales pipeline / opportunity forecasting (orders-in-hand only), payroll processing, inventory, timesheet capture.
+The platform serves **three legal entities** — CommSecurity Smart Buildings Pty Ltd, CommSecurity Pty Ltd and RAVEN BOX (§5.2). Release 1 is built and operated for Smart Buildings, but the schema is multi-entity from the first migration (ADR-07).
+
+**Out of scope for Release 1:** sales pipeline / opportunity forecasting (orders-in-hand only), payroll processing, inventory, timesheet capture, and inter-entity recharge accounting.
 
 ---
 
@@ -120,18 +122,72 @@ The month-end ritual becomes a status transition with a timestamp and a user. Th
 
 This single change removes the largest source of manual effort and the largest source of error in the current process.
 
-### 5.2 Core entities
+### 5.2 Multi-entity model
+
+The platform serves **three legal entities**, not one:
+
+| Entity | ABN | Role |
+|---|---|---|
+| **CommSecurity Smart Buildings Pty Ltd** | 19 677 520 339 (ACN 677 520 339) | Primary entity. Owns the current project portfolio |
+| **CommSecurity Pty Ltd** | 42 636 706 146 | Separate trading entity |
+| **RAVEN BOX** | *TBC* | Product entity — see the caveat below |
+
+Shared address (Level 1/250 Canterbury Road, Surrey Hills VIC 3127), shared phone, shared accounts inbox, and **shared people** — Justin Anders and Richard Roberts appear in both CommSecurity entities.
+
+**This is not SaaS multi-tenancy, and treating it as such would be a mistake.** In multi-tenancy the goal is isolation: tenants must never see each other. Here the goal is the opposite — consolidated visibility across entities, *plus* the ability to produce clean per-ABN statutory figures. Entity is a **scoping dimension**, not a security boundary. It is enforced in the query layer, and a consolidated view is a legitimate, commonly used mode rather than an administrative escape hatch.
+
+#### Why this lands in STP-1 and not later
+
+Adding `entity_id` to the schema now costs a column and a foreign key. Retrofitting it after four phases means touching every table, every view and every query — *and* backfilling entity attribution onto historical rows where the correct answer may no longer be recoverable. Same asymmetry as ADR-02: take the reversible path.
+
+**Decision: the schema is multi-entity from migration `001`. The interface is single-entity until there is a second entity to show.** Every fact table carries a non-null `entity_id`. STP-1 through STP-5 run with one entity seeded and the selector hidden. No UI cost, no retrofit cost.
+
+#### What is scoped by entity
+
+| Concern | Treatment |
+|---|---|
+| `project` | **Exactly one entity.** A project invoices from one ABN; this is not optional or shared |
+| `client_po`, `claim_line`, `supplier_po`, `supplier_invoice` | Inherit the project's entity |
+| Invoice numbers, supplier PO numbers | **Per-entity sequences.** These appear on documents bearing a specific ABN and must not collide or interleave across entities |
+| Job numbers | **One global sequence.** Job codes are an internal lookup key joined across every system; entity-prefixing adds ambiguity for no benefit. `project.entity_id` carries the attribution |
+| `client`, `supplier` | Shared master data, with a per-entity relationship record — the same client may trade with two entities under different terms |
+| `office_expense_line` | Entity plus optional allocation — see below |
+| User roles | Per-entity (`user_entity_role`), since someone may be operations in one entity and read-only in another |
+| Xero connection | **One per entity.** Three ABNs means three Xero organisations, three OAuth tenant connections |
+
+#### Shared resources — the genuinely hard part
+
+Justin's and Richard's wages are paid by one entity, but their work serves projects in another. The existing data already contains a hint of this: the Operations workbook carries a `COMMSecurity Labour (Techs / Tayler)` line with `CommSecurity` itself as the client.
+
+Proposed treatment, in increasing order of rigour:
+
+1. **Attribution only** (STP-4): `office_expense_line.entity_id` records which entity bears the cost. Sufficient for per-entity office expense reporting.
+2. **Allocation** (STP-4): an optional `office_expense_allocation` child table splitting a line across entities by percentage. Justin at 60/40 becomes data rather than a spreadsheet note.
+3. **Inter-entity recharge** (deferred): where one entity actually invoices another for labour, that is a real transaction in both Xero organisations and must appear as revenue in one and cost in the other.
+
+**Consolidation must eliminate inter-entity transactions.** If CommSecurity Pty Ltd invoices Smart Buildings, that amount is revenue on one side and cost on the other; summing all three entities without elimination double-counts. `claim_line` and `supplier_invoice` therefore need an `is_intercompany` flag and a counterparty entity reference, set at STP-2/STP-3 even though elimination logic is only exercised at STP-5.
+
+> **This has tax and transfer-pricing implications that are outside my competence.** Recharge arrangements between related entities should be confirmed with your accountant before the allocation model is finalised — the architecture should record whatever they specify, not lead it.
+
+#### RAVEN BOX is probably a different financial shape
+
+The two CommSecurity entities are project businesses: contract value, progress claims, project expenses. RAVEN BOX looks like a **product** business — the workbooks show RAVEN gateways as test equipment and `Raven R&D` (JN-5108) as an R&D project. If it sells units or licences, its revenue is unit sales and possibly recurring licence income, not progress claims against a contract value.
+
+`claim_line` models progress claims well and unit sales badly. **Recommendation: bring RAVEN BOX in as an entity from `001`, but do not force its revenue through the claim model until we know its shape.** It may need a separate revenue fact table, and possibly inventory — which §1 currently places out of scope. This is flagged in §13 rather than designed speculatively.
+
+
 
 **Dimensions**
 
 | Entity | Notes |
 |---|---|
+| `entity` | The three legal entities (§5.2). Legal name, ABN, ACN, registered address, phone, accounts email, Xero tenant id, active FY range. **Every fact table carries `entity_id NOT NULL`** |
 | `period` | The FY spine. `(fy, month_no 1–12, month_start, eom_date)`. Australian FY: **month_no 1 = July**. Pre-populated FY24 → FY35. Every fact joins here. |
 | `client` | Business name, ABN, addresses, invoice email, office/main/site contacts |
 | `supplier` | As per client, plus the invoice-submission email |
 | `project_type` | ICN, IBP, EMS, NSW, Consulting, Service, Security, Q-Access, R&D — reference table, not an enum, so types can be added without a deploy |
 | `project_status` | Active, Live, DLP, SLA, Complete, Cancelled |
-| `fx_rate` | `(currency, effective_date, rate_to_aud)` — see §5.4 |
+| `fx_rate` | `(currency, effective_date, rate_to_aud)` — see §5.5 |
 | `payroll_rate` | `(jurisdiction, kind, rate, effective_from)` — WorkCover VIC 1.785%, NSW iCare 0.39%, Payroll Tax VIC 4.85%, NSW 5.45%, superannuation. **Rates are data, not formulas.** |
 
 **Facts**
@@ -146,22 +202,32 @@ This single change removes the largest source of manual effort and the largest s
 | `project_expense_estimate` | One per (project, period) | This platform — manual forward estimate |
 | `office_expense_line` | One per (category, subject, period) | This platform |
 
-### 5.3 Key relationships
+### 5.4 Key relationships
 
 ```
-client ──< project ──< client_po
-                  │
-                  ├──< claim_line >── period
-                  ├──< supplier_po ──< supplier_po_line >── period
-                  ├──< supplier_invoice
-                  └──< project_expense_estimate >── period
+entity ──< project
+   │           │
+   │      client ──< project ──< client_po
+   │                       │
+   │                       ├──< claim_line >── period
+   │                       ├──< supplier_po ──< supplier_po_line >── period
+   │                       ├──< supplier_invoice
+   │                       └──< project_expense_estimate >── period
+   │
+   ├──< office_expense_line >── period
+   │        └──< office_expense_allocation >── entity
+   │
+   ├──< user_entity_role >── user
+   └──< number_sequence          (invoice / supplier PO, per entity)
 
-office_expense_line >── period
+document >── (entity_type, entity_id)   soft polymorphic, see §5.6
 ```
+
+Every fact hangs off `entity` as well as its natural parent. `project.entity_id` is the attribution point — `claim_line`, `supplier_po` and `supplier_invoice` inherit it rather than storing an independent copy that could drift.
 
 `project.job_code` is the universal join key across every system — Xero, iTrade, supplier correspondence, and internally. §6 covers why that key needs an owner.
 
-### 5.4 Decisions the model must make explicit
+### 5.5 Decisions the model must make explicit
 
 These are currently implicit in the spreadsheets and are a recurring source of disagreement. They get columns and constraints.
 
@@ -171,7 +237,7 @@ These are currently implicit in the spreadsheets and are a recurring source of d
 - **Contract value vs invoiceable value.** These currently diverge (see `PDNSW - SOC`: $518,400 PO against $259,200 FY27). Contract value lives on the project; the FY split is derived from claim lines. One number, one place.
 - **Multiple POs per project.** The model supports it; the sheets assume one.
 
-### 5.5 Documents & attachments
+### 5.6 Documents & attachments
 
 The prior Supabase evaluation correctly identified a requirement this document had omitted: drawings, quotes, contracts, commissioning documents, supplier quotes, receipt photos and PO paperwork all need to attach to projects, POs and claim lines.
 
@@ -191,7 +257,7 @@ This is roughly 150 lines of Go and a mounted volume. It is the entirety of what
 
 Restore ordering matters: the database references documents by hash, so **restore the document volume before the database** to avoid a window of dangling references.
 
-### 5.6 Reporting
+### 5.7 Reporting
 
 All rollups are **plain SQL views** to begin with — `v_project_financials`, `v_monthly_pl`, `v_dashboard`, `v_by_type`, `v_by_client`. At 250k rows on a warm cache these run in single-digit milliseconds. Materialised views are a measured optimisation, not a starting position; we add one only when a p95 measurement says so.
 
@@ -249,6 +315,8 @@ Per the SOW, the restricted-user + scoped-app approach is correct and should be 
 - If the refresh token is ever revoked or lapses, re-authorisation requires an interactive login. The runbook needs to name who can do that.
 
 Xero's `projectNumber` maps to `project.job_code`; the customer PO arrives as `Invoice.Reference`. Both mappings should be asserted in tests against real data as soon as access is granted.
+
+**One Xero organisation per entity.** Three ABNs means three Xero orgs, each with its own tenant connection, its own token pair and its own refresh lifecycle. The adapter is therefore written as *per-tenant from the outset* — a single-tenant implementation retrofitted to three is exactly the kind of rework ADR-07 exists to avoid. `entity.xero_tenant_id` is the join, and the token store is keyed by entity. A failure or revocation on one entity must not stall the others.
 
 ---
 
@@ -320,10 +388,23 @@ This is being built primarily by you working with Claude, with a dev team availa
 
 Practically: a `CLAUDE.md` at the repo root stating the stack, the budgets from §10, the naming conventions (`amount_ex_gst`, never `amount`) and the explicit ruled-out list, so those constraints are enforced on every session rather than re-litigated.
 
+### ADR-07 — Multi-entity schema from day one, single-entity interface
+**Status:** Accepted.
+
+Three legal entities (§5.2) with shared people and shared overheads. The schema carries `entity_id NOT NULL` on every fact table from migration `001`; the interface hides the selector until a second entity is loaded.
+
+**Why not defer the schema too.** The cost of the column now is a foreign key. The cost later is every table, every view, every query, plus backfilling entity attribution onto historical rows — and for shared overheads like Justin's and Richard's wages, the correct historical split may not be recoverable from the workbooks at all. Deferring the *interface* is free; deferring the *schema* is not. Same reversibility logic as ADR-02.
+
+**Why not separate databases or separate deployments per entity.** Both are superficially tidier and both defeat the purpose: consolidated reporting becomes a cross-database join or an export-and-merge, shared master data is duplicated three ways, and one deployment becomes three to patch and back up. Entity is a scoping dimension, not an isolation boundary (§5.2).
+
+**What this does not decide.** The allocation model for shared overheads and the treatment of inter-entity recharge are accounting questions, deferred to STP-4 and gated on advice (§13).
+
 ### ADR-04 — Authentication via Google Workspace SSO
 **Status:** Proposed · **Decision:** OIDC against Google Workspace. Roles held locally.
 
-The business already runs Google Workspace. SSO means no password storage, no reset flow, no separate offboarding step — revoking the Workspace account revokes platform access. Authorisation (viewer / project lead / operations / admin) is a small local table, since Workspace groups won't model project leadership.
+The business already runs Google Workspace. SSO means no password storage, no reset flow, no separate offboarding step — revoking the Workspace account revokes platform access. All three entities share the `commsecurity.com.au` domain, so one OIDC client covers everyone.
+
+Authorisation is a local `user_entity_role` table — **per entity, not global** (ADR-07). Someone may be operations in Smart Buildings and read-only in CommSecurity Pty Ltd, and Workspace groups will not model that or project leadership. A `consolidated` role grants the cross-entity view.
 
 ### ADR-05 — Schema migrations are versioned SQL files
 **Status:** Proposed.
@@ -335,7 +416,7 @@ Plain, numbered, forward-only `.sql` files applied by a tiny runner at startup. 
 
 Nightly `pg_dump` to a location on a different machine, plus a **monthly documented restore test.** An untested backup is not a backup. This is not optional for a system holding the financial forecast.
 
-The document volume (§5.5) backs up on its own schedule — weekly full plus incremental, since the store is append-mostly and content-addressed. Restore order is documents first, then database.
+The document volume (§5.6) backs up on its own schedule — weekly full plus incremental, since the store is append-mostly and content-addressed. Restore order is documents first, then database.
 
 Self-hosting means we are the cloud provider: backups, disaster recovery, OS and Docker patching, TLS renewal, monitoring and uptime are ours. That is an accepted cost of avoiding cloud compute charges, but it is a real one and belongs in a named runbook with a named owner — not assumed.
 
@@ -456,17 +537,19 @@ Phases ship to the internal server and are used in anger before the next begins.
 
 ### STP-1 — Project register & Job Number authority
 
-**Situation.** 49 active projects live in the Project List tab, carrying $7,299,574 of contract value with the FY26/FY27 split maintained by hand. Job codes are unreliable — `TBA`, `Various`, `na`, `JN 5108` (space instead of hyphen), `P-3655` against the `JN-` convention, and both `JN-676` and `JN-5416` appearing against two unrelated projects each. Job numbers are issued by iTrade. Because every other system joins on this key, every downstream integration inherits the ambiguity.
+**Situation.** 49 active projects live in the Project List tab, carrying $7,299,574 of contract value with the FY26/FY27 split maintained by hand. Job codes are unreliable — `TBA`, `Various`, `na`, `JN 5108` (space instead of hyphen), `P-3655` against the `JN-` convention, and both `JN-676` and `JN-5416` appearing against two unrelated projects each. Job numbers are issued by iTrade. Because every other system joins on this key, every downstream integration inherits the ambiguity. The workbooks are also entity-blind: they do not record which of the three legal entities owns a project, and at least one line (`COMMSecurity Labour`) is already an internal cross-entity charge.
 
-**Target.** This platform is authoritative for projects and job numbers. Every active project carries exactly one valid, unique job code. A project cannot exist without a client, type and lead.
+**Target.** This platform is authoritative for projects and job numbers. Every active project carries exactly one valid, unique job code **and one owning entity**. A project cannot exist without an entity, client, type and lead.
 
 **Proposal.**
-- Migration `001`: `period` (seeded FY24–FY35, month 1 = July), `client`, `project_type`, `project_status`, `project`, `job_code_alias`
-- Uniqueness and format enforced by database constraint, not application code
-- Python importer from the Project List tab, emitting **a worklist of every ambiguous code** rather than guessing
-- Project CRUD and the job number allocator
+- Migration `001`: `entity`, `period` (seeded FY24–FY35, month 1 = July), `client`, `project_type`, `project_status`, `project`, `job_code_alias`, `user_entity_role`, `number_sequence`
+- All three entities seeded from company records (§5.2); RAVEN BOX pending its ABN
+- `entity_id NOT NULL` on every fact table from the outset; entity selector hidden in the UI (ADR-07)
+- Uniqueness and format of job codes enforced by database constraint, not application code
+- Python importer from the Project List tab, emitting **a worklist of every ambiguous code** and **every project whose owning entity is unclear**
+- Project CRUD and the job number allocator (global sequence)
 
-**Exit criteria.** All 49 projects migrated with zero unresolved job codes. The next new job number is issued by the platform rather than iTrade. Project List tab read-only.
+**Exit criteria.** All 49 projects migrated with zero unresolved job codes and every project attributed to an entity. The next new job number is issued by the platform rather than iTrade. Project List tab read-only.
 
 ---
 
@@ -496,8 +579,8 @@ Phases ship to the internal server and are used in anger before the next begins.
 **Proposal.**
 - Migration `003`: `supplier`, `supplier_po`, `supplier_po_line`, `supplier_invoice`, `fx_rate`, `project_expense_estimate`
 - Supplier PO issuance and sequential numbering, per project
-- `fx_rate_used` captured per line at issue (§5.4)
-- Document attachment (§5.5) for quotes, PO PDFs and delivery paperwork
+- `fx_rate_used` captured per line at issue (§5.5)
+- Document attachment (§5.6) for quotes, PO PDFs and delivery paperwork
 - Estimate entry by project × period, distinguishable from actual roll-up
 
 **Exit criteria.** A supplier PO raised end-to-end in the platform with quote attached and sent to a real supplier. Procurement Register and PE tabs read-only.
@@ -512,7 +595,7 @@ Phases ship to the internal server and are used in anger before the next begins.
 
 **Proposal.**
 - Migration `004`: `office_expense_line`, `payroll_rate`, `tax_rate`
-- Derivation engine driven by `payroll_rate`, with `is_derived` making computed lines visible (§5.4)
+- Derivation engine driven by `payroll_rate`, with `is_derived` making computed lines visible (§5.5)
 - Importer for both the FY26/27 and FY27/28 grids
 - Rates carry `effective_from`, so a mid-year change does not restate prior months
 
@@ -570,6 +653,9 @@ Task trackers, IBP system categories, commissioning checklists — the "120 Balm
 | Spreadsheets persist in parallel ("shadow system") | Each phase makes the corresponding tab read-only on completion. Ambiguity about which is authoritative is the failure mode |
 | Single maintainer / bus factor | Boring stack, plain SQL, versioned migrations, documented runbook. This is a stated reason for ADR-03 and ADR-05 |
 | Backup exists but does not restore | Monthly documented restore test (ADR-06) |
+| Entity attribution not recoverable for historical rows | `entity_id` exists from migration `001`; STP-1 surfaces unclear attribution as a worklist while the people who know are still available (ADR-07) |
+| RAVEN BOX forced into a project-shaped revenue model | Entity seeded early, revenue model deliberately undecided until its shape is known (§5.2) |
+| Consolidated figures double-count inter-entity trade | `is_intercompany` flag captured at STP-2/STP-3, elimination applied at STP-5 (§5.2) |
 
 ---
 
@@ -582,6 +668,12 @@ Task trackers, IBP system categories, commissioning checklists — the "120 Balm
 3. **Historical scope.** Does the platform start from FY27, or do we migrate FY26 actuals for year-on-year comparison?
 4. **Job code resolution.** STP-1 forces a decision on every ambiguous code (`TBA`, `Various`, `na`, duplicate `JN-676` / `JN-5416`). Who is authoritative for those calls?
 5. **Internal registry.** Does one exist on the Linux VM estate, or is `docker save` / `scp` the deploy path for now?
+6. **RAVEN BOX details** — ABN, ACN, registered address, and whether it currently has its own Xero organisation.
+7. **RAVEN BOX revenue model.** Unit sales, licence/recurring, R&D cost centre, or project work? This decides whether it needs a revenue fact table beyond `claim_line`, and whether inventory returns to scope (§5.2).
+8. **Entity ownership of the existing portfolio.** Do all 49 active projects belong to Smart Buildings, or is FY26/FY27 history split across both CommSecurity entities?
+9. **Shared overhead allocation.** How should Justin's and Richard's costs be split across entities — fixed percentage, per-project, or borne wholly by one? **Requires accountant input** before STP-4 (§5.2).
+10. **Inter-entity trade.** Does one entity currently invoice another, and if so is it recorded in both Xero organisations?
+11. **Numbering continuity.** Do the second and third entities need invoice and supplier PO sequences that continue existing series, or start fresh?
 
 ---
 

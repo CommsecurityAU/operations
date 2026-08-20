@@ -70,6 +70,30 @@ class TestConnections(Base):
         self.assertEqual(len(set(seen.values())), 3)
         self.assertNotIn(main, seen.values())
 
+    def test_close_releases_connections_from_every_thread(self):
+        """close() must close read connections owned by OTHER threads.
+
+        Leaving them to the garbage collector works on Linux, where an open
+        file can still be unlinked, and fails on Windows with WinError 32.
+        The strict tearDown in this suite is the leak detector -- do not
+        soften it to ignore_errors.
+        """
+        opened = []
+
+        def grab():
+            self.db._read.execute("SELECT 1").fetchone()
+            opened.append(self.db._read)
+
+        ts = [threading.Thread(target=grab) for _ in range(3)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+        self.assertEqual(len(opened), 3)
+        self.db.close()
+        for conn in opened:
+            with self.assertRaises(sqlite3.ProgrammingError):
+                conn.execute("SELECT 1")
+        self.db = Db(self.path, MIGRATIONS)  # tearDown closes this one
+
     def test_rollback_on_exception(self):
         with self.assertRaises(ValueError):
             with self.db._tx() as c:

@@ -67,6 +67,12 @@ class Db:
         self.migrations_dir = migrations_dir
         self._lock = threading.Lock()
         self._local = threading.local()
+        # Every read connection ever handed out, so close() is deterministic.
+        # Relying on the owning thread dying and CPython refcounting to close
+        # these leaves file handles open for as long as the Thread object is
+        # referenced -- invisible on Linux, an unlinkable file on Windows.
+        self._read_conns = []
+        self._read_reg = threading.Lock()
 
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         # check_same_thread=False is safe ONLY because every use is serialised
@@ -94,6 +100,8 @@ class Db:
             for p in READ_PRAGMAS:
                 conn.execute(p)
             self._local.conn = conn
+            with self._read_reg:
+                self._read_conns.append(conn)
         return conn
 
     def query(self, sql, params=()):
@@ -225,10 +233,15 @@ class Db:
         return report
 
     def close(self):
-        conn = getattr(self._local, "conn", None)
-        if conn is not None:
-            conn.close()
-            self._local.conn = None
+        """Closes EVERY read connection, not just this thread's."""
+        with self._read_reg:
+            for conn in self._read_conns:
+                try:
+                    conn.close()
+                except sqlite3.Error:
+                    pass
+            self._read_conns.clear()
+        self._local.conn = None
         self._write.close()
 
     # ==================================================================

@@ -15,10 +15,12 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+sys.path.insert(0, ROOT)
 import import_register as imp  # noqa: E402
+from ops.db import Db, MigrationError  # noqa: E402
 
-ROOT = os.path.join(os.path.dirname(__file__), "..")
 MIGRATIONS = os.path.join(ROOT, "ops", "migrations")
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "project_register_fy27.csv")
 
@@ -32,19 +34,11 @@ PERIOD_ROWS = 144             # FY24..FY35
 
 
 def migrate(db_path):
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("""CREATE TABLE IF NOT EXISTS schema_migrations (
-                        version TEXT PRIMARY KEY, applied_ts INTEGER NOT NULL) STRICT""")
-    for fn in sorted(os.listdir(MIGRATIONS)):
-        if not fn.endswith(".sql"):
-            continue
-        with open(os.path.join(MIGRATIONS, fn), encoding="utf-8") as f:
-            sql = f.read()
-        with conn:  # one transaction per migration
-            conn.executescript(sql)
-            conn.execute("INSERT INTO schema_migrations VALUES (?, 0)", (fn,))
-    return conn
+    """Uses the REAL runner from ops.db -- not a copy of its logic, or the
+    tests stop testing the thing that ships."""
+    db = Db(db_path, MIGRATIONS)
+    db.migrate()
+    return db
 
 
 class Base(unittest.TestCase):
@@ -52,10 +46,11 @@ class Base(unittest.TestCase):
         fd, self.db = tempfile.mkstemp(suffix=".db")
         os.close(fd)
         os.unlink(self.db)
-        self.conn = migrate(self.db)
+        self.dbo = migrate(self.db)
+        self.conn = self.dbo._write
 
     def tearDown(self):
-        self.conn.close()
+        self.dbo.close()
         if os.path.exists(self.db):
             os.unlink(self.db)
 
@@ -195,9 +190,9 @@ class TestImport(Base):
             "SELECT COUNT(DISTINCT entity_id) FROM project"), 1)
 
     def test_shared_codes_are_flagged_not_merged(self):
-        shared = self.conn.execute(
+        shared = [tuple(r) for r in self.conn.execute(
             """SELECT job_code, COUNT(*) FROM project WHERE job_code LIKE 'JN-%'
-               GROUP BY job_code HAVING COUNT(*) > 1 ORDER BY job_code""").fetchall()
+               GROUP BY job_code HAVING COUNT(*) > 1 ORDER BY job_code""").fetchall()]
         self.assertEqual(shared, [("JN-4335", 2), ("JN-4407", 2)])
         # both projects keep their own history via a one-to-many alias
         for code in ("JN-4335", "JN-4407"):

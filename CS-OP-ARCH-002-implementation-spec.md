@@ -128,6 +128,9 @@ Migrations:
 - Entrypoint order: `backup.snapshot()` → `migrate()` → serve. Migrate failure = non-zero exit = unhealthy = **agent auto-rolls back**.
 - **N-1 rule:** because rollback is automatic, a migration must not break the previous release's code — and `/healthz` is forward-compatible (§3) so that release can actually boot against the newer schema. Expand-and-contract; destructive contractions ship one release after the expand has been stable.
 - N-1 is a **gate, not a memory**: CI checks out the previous release tag and runs *its* test suite against a database migrated to the new head.
+- **The runner supplies `BEGIN`/`COMMIT`; migration files must not contain their own transaction control.** Python's `sqlite3.executescript()` commits any pending transaction before it runs, so a `BEGIN` issued beforehand is discarded — the only way to make a migration atomic is to wrap the script text itself.
+- **A failed `executescript()` leaves the transaction OPEN and the completed statements IN PLACE.** Python does not roll back for you. The runner's explicit `rollback()` is therefore load-bearing, not hygiene: without it a failed migration leaves a half-applied schema, and a migration failure is precisely the moment auto-rollback fires. Verified empirically, pinned by a test that ships a deliberately broken migration.
+- **Every read connection handed out is registered, and `close()` closes all of them** — not just the calling thread's. Leaving them to the garbage collector ties a file handle's lifetime to when CPython happens to collect a dead `Thread`. That is invisible on Linux, where an open file unlinks fine, and on Windows it is an error.
 
 ## 5. Data shaping — rows → dicts → JSON, once
 
@@ -383,8 +386,16 @@ fleet manager, health-gated on /healthz, auto-rollback.
   helper is the whole XSS defence.
 - Migrations are N-1 compatible AND /healthz is forward-compatible
   (applied ⊇ expected, never equality) — otherwise auto-rollback loops.
-- Tests: stdlib unittest, fresh temp DB through REAL migrations, no docker,
-  suite < 10 s, run with -W error::ResourceWarning.
+- Tests: stdlib unittest, fresh temp DB through the REAL runner (ops.db
+  migrate), never a hand-rolled copy of it, no docker, suite < 10 s, run
+  with -W error::ResourceWarning.
+- MUTATION-TEST every concurrency safeguard: delete the lock, confirm a test
+  fails. Tests built from SINGLE SQLite statements pass without it -- SQLite's
+  own mutex already makes those atomic, so they test SQLite, not us. A lost
+  update needs a read AND a write in one transaction.
+- Teardown stays strict (no ignore_errors). On Windows an undeleted temp DB
+  is a leaked handle; that failure is the only leak detector we have, since
+  Linux unlinks open files happily. Run the suite on Windows periodically.
 - Budgets are CI gates: image < 75 MB, JS < 50 KB/page, 0 pip deps, 0
   secret values, 0 pyright --strict errors, cold start < 2 s. A regression
   is a failing build.
@@ -445,6 +456,7 @@ fleet manager, health-gated on /healthz, auto-rollback.
 
   *Bus factor, stated plainly.* Sole authority means class C decisions get no second reader, and class C is where the money actually moves. The `reason` field on `job_code_issue` is mandatory for class C specifically — with no reviewer, the written rationale is the only check that exists.
 - **ADR-24 — OIDC scopes include `profile`.** Partially answers Q2 (resolved 20 Aug 2026). `openid email profile` rather than `openid email`, so `name` is available and approver fields, claim history and `audit_log` render a person rather than an address. No additional consent friction on an Internal-type app, and retrofitting display names after audit rows exist is materially worse than adding the scope now. **Q2's remaining part is an action, not a decision:** registering the client in a Cloud project inside the Workspace org, consent screen set to *Internal* (which restricts the flow to `commsecurity.com.au` accounts before §8's `hd` check is even reached), redirect URIs `https://ops.commsecurity.com.au/auth/callback` and `http://localhost:8080/auth/callback`. It blocks STP-0's first exit criterion and nothing earlier.
+- **ADR-25 — Migration `001` captures the validated register figures; `002` expands them.** Supersedes ADR-22's sequencing note, which said `001` preserves nothing because STP-2 re-reads the workbook. That held while the workbook was a stable artifact. During the 20 Aug 2026 validation it was edited five times — codes reissued, a column merged and renamed, a phantom row deleted — so "re-read at STP-2" means "re-validate at STP-2 against a moving target", and the reconciliation done once would have to be done again. `project` therefore carries `purchase_order_cents` and `invoiced_prior_cents` as explicitly-labelled migration inputs; `002` expands them into `customer_po` plus the synthetic opening `claim_line` and contracts the columns away. Textbook expand-and-contract, which §4 already mandates. Accepted cost: two columns live in `project` for one release that are not the long-term model, and the comment saying so must survive.
 - **Corrections (defects, not decisions — recorded here because the document is locked).** Each was a stated intent that the mechanism didn't actually deliver:
   - `/healthz` moved from schema-version *equality* to `applied ⊇ expected`. Equality guaranteed that any rolled-back release would declare itself unhealthy against the schema the failed release had already migrated — an unrecoverable rollback loop that silently negated the N-1 rule it sat next to.
   - `render.py` gains escape-by-default helpers with an explicit `raw()` opt-out, closing a stored-XSS path. The JS half had four CI checks guarding `innerHTML`; the server half, which builds HTML from f-strings, had none.

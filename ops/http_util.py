@@ -24,6 +24,7 @@ import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any, Callable
 
 log = logging.getLogger("ops.http")
 
@@ -140,11 +141,13 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     timeout = READ_TIMEOUT
 
-    # set by serve()
-    router = None
-    limiter = None
-    tls_enabled = False
-    auth_hook = None   # (handler, role) -> user dict; raises HttpError
+    # Bound by make_server() on a per-server subclass. Annotated as optional
+    # so the checker knows the shape; _dispatch refuses rather than crashing
+    # if a server is ever constructed without them.
+    router: "Router | None" = None
+    limiter: "ConnectionLimiter | None" = None
+    tls_enabled: bool = False
+    auth_hook: "Callable[..., Any] | None" = None  # (handler, role) -> user
 
     # ------------------------------------------------------------- output
     def _send(self, status, body=b"", content_type="application/json",
@@ -210,6 +213,8 @@ class Handler(BaseHTTPRequestHandler):
         status = 500
         try:
             path = self.path.split("?", 1)[0]
+            if self.router is None:
+                raise HttpError(500, "no router configured")
             fn, role, params = self.router.match(self.command, path)
             if fn is None:
                 raise HttpError(404, "not found")
@@ -245,9 +250,10 @@ class Handler(BaseHTTPRequestHandler):
 
     do_GET = do_POST = do_PATCH = do_PUT = do_DELETE = do_HEAD = _dispatch
 
-    def log_message(self, fmt, *args):
+    def log_message(self, format, *args):  # noqa: A002 - base class name
         """Silence BaseHTTPRequestHandler's stderr logging; we emit one JSON
-        line per request in _dispatch instead."""
+        line per request in _dispatch instead. The parameter keeps the base
+        class's name so the override stays substitutable."""
 
 
 class Server(ThreadingHTTPServer):
@@ -328,7 +334,10 @@ def make_server(addr, router, auth_hook=None, tls_enabled=False,
     limiter = ConnectionLimiter(limit)
 
     class Bound(Handler):
-        pass
+        router: "Router | None" = None
+        limiter: "ConnectionLimiter | None" = None
+        auth_hook: "Callable[..., Any] | None" = None
+        tls_enabled: bool = False
 
     Bound.router = router
     Bound.limiter = limiter

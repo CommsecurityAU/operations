@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import shutil
+import ssl
 import sys
 import tempfile
 import threading
@@ -21,6 +22,7 @@ sys.path.insert(0, ROOT)
 from ops import auth, backup  # noqa: E402
 from ops.config import Config, from_env  # noqa: E402
 from ops.db import Db  # noqa: E402
+from ops import main as main_mod  # noqa: E402
 from ops.main import boot, build_router, make_auth_hook  # noqa: E402
 from ops.secrets import LocalProvider  # noqa: E402
 
@@ -138,6 +140,70 @@ class TestBackup(BackupCase):
         sched.stop()
         self.assertGreaterEqual(sched.runs, 1)
         self.assertFalse(sched._thread.is_alive())
+
+
+class TestCertExpiry(unittest.TestCase):
+    """Certificate dates from a DER walk, using only public stdlib.
+
+    The tempting shortcut is `ssl._ssl._test_decode_cert` -- private,
+    undocumented, named for testing. Depending on it would break silently on
+    a base-image bump, which is the exact failure the digest pin exists to
+    prevent.
+    """
+
+    def make_cert(self, days):
+        import subprocess
+        crt = os.path.join(self.dir, f"c{days}.pem")
+        key = os.path.join(self.dir, f"k{days}.pem")
+        subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", key,
+             "-out", crt, "-days", str(days), "-nodes",
+             "-subj", "/CN=ops.commsecurity.com.au"],
+            check=True, capture_output=True)
+        return crt
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        if shutil.which("openssl") is None:
+            self.skipTest("openssl not available")
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_matches_openssl(self):
+        import subprocess
+        crt = self.make_cert(45)
+        with open(crt, "rb") as f:
+            mine = main_mod.cert_not_after(f.read())
+        out = subprocess.run(["openssl", "x509", "-in", crt, "-noout",
+                              "-enddate"], capture_output=True, text=True).stdout
+        theirs = ssl.cert_time_to_seconds(out.strip().split("=", 1)[1])
+        self.assertEqual(mine, theirs)
+
+    def test_days_remaining(self):
+        self.assertIn(main_mod.check_cert_expiry(self.make_cert(45)), (44, 45))
+
+    def test_warns_when_close_to_expiry(self):
+        with self.assertLogs("ops.main", level="WARNING") as cm:
+            main_mod.check_cert_expiry(self.make_cert(10))
+        self.assertTrue(any("EXPIRES IN" in m for m in cm.output))
+
+    def test_no_warning_when_far_from_expiry(self):
+        logger = logging.getLogger("ops.main")
+        logger.setLevel(logging.WARNING)
+        with self.assertNoLogs("ops.main", level="WARNING"):
+            main_mod.check_cert_expiry(self.make_cert(400))
+
+    def test_missing_file_returns_none(self):
+        self.assertIsNone(main_mod.check_cert_expiry("/no/such/cert.pem"))
+
+    def test_garbage_returns_none_rather_than_crashing_boot(self):
+        bad = os.path.join(self.dir, "bad.pem")
+        with open(bad, "w") as f:
+            f.write("-----BEGIN CERTIFICATE-----\nbm90IGEgY2VydA==\n"
+                    "-----END CERTIFICATE-----\n")
+        logging.getLogger("ops.main").setLevel(logging.CRITICAL)
+        self.assertIsNone(main_mod.check_cert_expiry(bad))
 
 
 class TestBootRefusals(unittest.TestCase):

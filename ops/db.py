@@ -17,6 +17,7 @@ import os
 import sqlite3
 import threading
 import time
+from typing import Any
 
 # STRICT tables need 3.37; UPDATE ... RETURNING needs 3.35. Asserted at boot
 # rather than discovered at the first failing migration, and asserted again
@@ -73,6 +74,10 @@ class Db:
         # referenced -- invisible on Linux, an unlinkable file on Windows.
         self._read_conns = []
         self._read_reg = threading.Lock()
+        # Declared here, not conjured when a backup first fails: an attribute
+        # that only exists after an error is invisible to readers and to the
+        # type checker.
+        self.last_backup_error = None
 
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         # check_same_thread=False is safe ONLY because every use is serialised
@@ -203,7 +208,8 @@ class Db:
         binary that now sees a schema ahead of it and declares ITSELF
         unhealthy -- forever (ADR-10, §4 N-1).
         """
-        report = {"ok": False, "schema": None, "integrity": None, "warnings": []}
+        report: dict[str, Any] = {
+            "ok": False, "schema": None, "integrity": None, "warnings": []}
         try:
             check = self._write.execute("PRAGMA quick_check").fetchone()[0]
         except sqlite3.Error as e:
@@ -226,7 +232,7 @@ class Db:
 
         # A backup job that dies quietly takes the RPO with it and nothing
         # external notices, so its failure is surfaced here (ADR-17).
-        if getattr(self, "last_backup_error", None):
+        if self.last_backup_error:
             report["warnings"].append(f"backup: {self.last_backup_error}")
 
         report["ok"] = True

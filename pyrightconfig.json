@@ -1,0 +1,20 @@
+{
+  "include": [
+    "ops",
+    "tools"
+  ],
+  "exclude": [
+    "**/__pycache__"
+  ],
+  "typeCheckingMode": "strict",
+  "pythonVersion": "3.12",
+  "reportMissingTypeStubs": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownParameterType": false,
+  "reportMissingParameterType": false,
+  "reportUnknownLambdaType": false,
+  "reportAny": false,
+  "reportUnusedFunction": false
+}

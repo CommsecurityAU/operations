@@ -41,6 +41,65 @@ def setup_logging():
 
 
 # ------------------------------------------------------------------ certs
+def _der_tlv(data, offset=0):
+    """One DER tag-length-value. Returns (tag, value_bytes, next_offset)."""
+    tag = data[offset]
+    i = offset + 1
+    length = data[i]
+    i += 1
+    if length & 0x80:                       # long form
+        count = length & 0x7F
+        length = int.from_bytes(data[i:i + count], "big")
+        i += count
+    return tag, data[i:i + length], i + length
+
+
+def _der_children(value):
+    out, off = [], 0
+    while off < len(value):
+        tag, child, off = _der_tlv(value, off)
+        out.append((tag, child))
+    return out
+
+
+def cert_not_after(pem_bytes):
+    """Certificate expiry, in unix seconds, using only public stdlib.
+
+    Python exposes no supported API for reading a certificate file's dates
+    without a live connection. The obvious shortcut is `ssl._ssl._test_decode_cert`,
+    but it is private, undocumented and named for testing -- a load-bearing
+    dependency on it would break silently on a base-image bump, which is
+    exactly the class of failure the digest pin exists to prevent.
+
+    So walk the DER instead. X.509 is:
+        Certificate ::= SEQUENCE { tbsCertificate, sigAlg, sigValue }
+        tbsCertificate ::= SEQUENCE { [0] version?, serial, sigAlg,
+                                      issuer, validity, ... }
+        Validity ::= SEQUENCE { notBefore, notAfter }
+    """
+    der = ssl.PEM_cert_to_DER_cert(pem_bytes.decode())
+    _, cert_body, _ = _der_tlv(der)
+    tbs_tag, tbs_body = _der_children(cert_body)[0]
+    if tbs_tag != 0x30:
+        raise ValueError("tbsCertificate is not a SEQUENCE")
+    items = _der_children(tbs_body)
+    idx = 1 if items[0][0] == 0xA0 else 0    # optional explicit version
+    validity_tag, validity = items[idx + 3]
+    if validity_tag != 0x30:
+        raise ValueError("validity is not a SEQUENCE")
+    not_after_tag, not_after = _der_children(validity)[1]
+    text = not_after.decode("ascii")
+    if not_after_tag == 0x17:                # UTCTime, YYMMDDHHMMSSZ
+        return ssl.cert_time_to_seconds(
+            time.strftime("%b %d %H:%M:%S %Y GMT",
+                          time.strptime(text, "%y%m%d%H%M%SZ")))
+    if not_after_tag == 0x18:                # GeneralizedTime
+        return ssl.cert_time_to_seconds(
+            time.strftime("%b %d %H:%M:%S %Y GMT",
+                          time.strptime(text, "%Y%m%d%H%M%SZ")))
+    raise ValueError(f"unexpected time tag {not_after_tag:#x}")
+
+
 def check_cert_expiry(cert_path, warn_days=CERT_WARN_DAYS, now=None):
     """An internal CA cert dying takes the whole app down and nothing else
     will notice (§3). Returns days remaining, or None if unreadable."""
@@ -48,18 +107,17 @@ def check_cert_expiry(cert_path, warn_days=CERT_WARN_DAYS, now=None):
         return None
     try:
         with open(cert_path, "rb") as f:
-            der = ssl.PEM_cert_to_DER_cert(f.read().decode())
-        info = ssl._ssl._test_decode_cert(cert_path)
-        expires = ssl.cert_time_to_seconds(info["notAfter"])
+            expires = cert_not_after(f.read())
     except Exception as e:
         log.warning("could not read TLS certificate expiry: %s", type(e).__name__)
         return None
     days = int((expires - (now or time.time())) / 86400)
+    stamp = time.strftime("%Y-%m-%d", time.gmtime(expires))
     if days < 0:
-        log.error("TLS CERTIFICATE HAS EXPIRED (%s)", info.get("notAfter"))
+        log.error("TLS CERTIFICATE HAS EXPIRED (%s)", stamp)
     elif days < warn_days:
         log.warning("TLS CERTIFICATE EXPIRES IN %d DAYS (%s) -- renew now",
-                    days, info.get("notAfter"))
+                    days, stamp)
     return days
 
 

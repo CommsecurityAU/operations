@@ -152,7 +152,7 @@ def load(conn, parsed):
         "SELECT id, code FROM project_type")}
     clients, issues, aliases = {}, [], []
 
-    for row_no, r, po, prior, cv in parsed:
+    for row_no, r, po, prior, _cv in parsed:
         name = r["Project"].strip()
         cls, code, legacy = classify(r.get("Job Code", ""))
 

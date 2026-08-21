@@ -17,11 +17,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0        # N-1 check needs the previous release tag
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -34,10 +34,13 @@ jobs:
       - name: Gates (deps, secrets, base image pin, migrations)
         run: python3 -m unittest tests.test_gates -v
 
-      - name: Types
+      # ADR-19: a HARD gate. Note there is no `|| true` and no second
+      # invocation -- an earlier version ran pyright twice so the step's exit
+      # code came from the retry, which is a gate that cannot fail.
+      - name: Types (pyright --strict, 0 errors)
         run: |
           pip install pyright==1.1.389
-          pyright --outputjson ops/ tools/ || pyright ops/ tools/
+          pyright
 
       - name: Suite wall time under 10 s
         run: |
@@ -54,9 +57,9 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with: { python-version: '3.12' }
       - name: Previous release tests against the new schema head
         run: |
@@ -75,7 +78,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build (retry transient pulls -- red CI must mean OUR code broke)
         run: |

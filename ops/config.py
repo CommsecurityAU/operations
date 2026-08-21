@@ -8,6 +8,7 @@ be logged or republished, so it must never come to hold values.
 
 import os
 from dataclasses import dataclass, field, fields
+from typing import Any
 
 SECRET_KEYS = ("oidc_client_secret",)
 
@@ -36,7 +37,7 @@ class Config:
     backup_interval_s: int = 3600
     backup_keep: int = 48
 
-    _sources: dict = field(default_factory=dict, repr=False)
+    _sources: dict[str, Any] = field(default_factory=dict, repr=False)
 
     # ------------------------------------------------------------ paths
     @property
@@ -77,7 +78,7 @@ class Config:
         be declared rather than inferred from a naming convention."""
         return {k: getattr(self, k) for k in SECRET_KEYS}
 
-    def redacted(self):
+    def redacted(self) -> dict[str, Any]:
         """Safe to log. Secret-bearing fields are reported by KEY only --
         and if one somehow holds a value rather than a reference, this says
         so instead of printing it."""

@@ -260,8 +260,12 @@ CI (GitHub Actions, push to `main`; `v*` tags → versions):
 2. Gates: `pyright --strict` (0 errors) · JS guardrails · `render.py` escaping guardrails (§7) · no-secret-values grep with allowlist (§10) · "0 pip deps in image" inspection · N-1 check (previous release tag's suite against the new migration head, §4)
 3. `docker build` from a **digest-pinned base** — `FROM python:3.12-alpine@sha256:…`, never the floating tag. Everything downstream of this build is digest-pinned and signed ("a release means exactly those bytes forever"); an unpinned base makes that true only *after* the build, so two CI runs of the same commit can ship different bytes — and specifically different SQLite versions, while `STRICT` tables and `UPDATE … RETURNING` require ≥ 3.37. Retry ×3 on transient pulls — red CI must mean *our* code broke. Tag `ghcr.io/commsecurityau/cs-ops:latest` + `:<sha7>`.
 4. In-image assertions, run before push: `sqlite3.sqlite_version >= 3.37` · zero pip packages beyond the base · `ca-certificates` present (§8's "TLS is the trust boundary" argument rests entirely on certificate validation actually working).
-5. Size gate: image **< 75 MB** hard fail (expect ~60, §14)
+5. Size gate: image **< 75 MB** hard fail (measured 47 MB, 21 Aug 2026)
 6. Push to ghcr (`packages: write`)
+
+**A gate's exit code must come from the gate.** The first version of the type step read `pyright --outputjson … || pyright …`, intending readable output on failure — which meant the step's exit status came from the *retry*, so it could never fail the build. Any `||`, `|| true`, `continue-on-error`, or second invocation in a gate step is a review reject: it produces a green tick that means nothing, which is worse than having no gate at all because it is trusted.
+
+**Gates are unittest cases, not shell steps.** `tests/test_gates.py` holds the dependency, secret-scanning, base-image-pin and migration checks, so they run on `make test` and on Windows. A gate that exists only in CI is one you discover you have broken after pushing.
 
 Base-image bumps: the pin is only a virtue if it moves on purpose. A bump is an ordinary PR — new digest, full suite, merged like anything else — raised by an automated dependency PR or a diarised quarterly review. A pin nobody moves is an unpatched base.
 
@@ -282,12 +286,12 @@ Dev loop:
 
 | Budget | Limit | Enforcement |
 |---|---|---|
-| Image size | < 75 MB | CI hard fail |
+| Image size | < 75 MB | CI hard fail — measured **47 MB** |
 | Runtime pip deps | 0 | CI hard fail |
 | Type errors (`pyright --strict`) | 0 | CI hard fail |
 | JS per page (uncompressed) | < 50 KB | CI hard fail |
 | Secret values on file | 0 | CI grep + allowlist, hard fail |
-| Test suite wall time | < 10 s | CI hard fail |
+| Test suite wall time | < 10 s | CI hard fail — measured **~4 s**, 189 tests |
 | Cold start → serving | < 2 s | CI in-process timer |
 | Container RSS steady | < 128 MB | trend, staging |
 | Dashboard p95 @ 250 k-row fixture | < 150 ms | trend, staging |
@@ -389,6 +393,13 @@ fleet manager, health-gated on /healthz, auto-rollback.
 - Tests: stdlib unittest, fresh temp DB through the REAL runner (ops.db
   migrate), never a hand-rolled copy of it, no docker, suite < 10 s, run
   with -W error::ResourceWarning.
+- NO PRIVATE STDLIB APIs. `ssl._ssl._test_decode_cert` was load-bearing for
+  cert-expiry warnings until pyright found it: private, undocumented, named
+  for testing, and free to vanish on a base-image bump — the exact failure
+  the digest pin exists to prevent. Walk the DER instead.
+- A gate's exit code must come from the GATE. No `||`, no `|| true`, no
+  second invocation. A green tick that cannot go red is worse than no gate,
+  because it is trusted.
 - MUTATION-TEST every concurrency safeguard: delete the lock, confirm a test
   fails. Tests built from SINGLE SQLite statements pass without it -- SQLite's
   own mutex already makes those atomic, so they test SQLite, not us. A lost
@@ -457,6 +468,7 @@ fleet manager, health-gated on /healthz, auto-rollback.
   *Bus factor, stated plainly.* Sole authority means class C decisions get no second reader, and class C is where the money actually moves. The `reason` field on `job_code_issue` is mandatory for class C specifically — with no reviewer, the written rationale is the only check that exists.
 - **ADR-24 — OIDC scopes include `profile`.** Partially answers Q2 (resolved 20 Aug 2026). `openid email profile` rather than `openid email`, so `name` is available and approver fields, claim history and `audit_log` render a person rather than an address. No additional consent friction on an Internal-type app, and retrofitting display names after audit rows exist is materially worse than adding the scope now. **Q2's remaining part is an action, not a decision:** registering the client in a Cloud project inside the Workspace org, consent screen set to *Internal* (which restricts the flow to `commsecurity.com.au` accounts before §8's `hd` check is even reached), redirect URIs `https://ops.commsecurity.com.au/auth/callback` and `http://localhost:8080/auth/callback`. It blocks STP-0's first exit criterion and nothing earlier.
 - **ADR-25 — Migration `001` captures the validated register figures; `002` expands them.** Supersedes ADR-22's sequencing note, which said `001` preserves nothing because STP-2 re-reads the workbook. That held while the workbook was a stable artifact. During the 20 Aug 2026 validation it was edited five times — codes reissued, a column merged and renamed, a phantom row deleted — so "re-read at STP-2" means "re-validate at STP-2 against a moving target", and the reconciliation done once would have to be done again. `project` therefore carries `purchase_order_cents` and `invoiced_prior_cents` as explicitly-labelled migration inputs; `002` expands them into `customer_po` plus the synthetic opening `claim_line` and contracts the columns away. Textbook expand-and-contract, which §4 already mandates. Accepted cost: two columns live in `project` for one release that are not the long-term model, and the comment saying so must survive.
+- **ADR-26 — `pyright --strict` with four named exclusions, recorded in `pyrightconfig.json`.** Implements ADR-19. Strict mode on a stdlib-only codebase with no type stubs produces mostly noise about `sqlite3.Row`, so the `reportUnknown*` family is off. `reportUnusedFunction` is off because route handlers are registered by decorator and the checker cannot see that as a use — without it every handler is flagged. Everything that catches real defects stays on: attribute access, optional access, argument types, incompatible overrides, and **`reportUnusedVariable`**, which found two pieces of dead code on first run. The exclusions are in a committed config rather than scattered `# type: ignore` comments, so the holes are countable and reviewable in one place. First clean run 21 Aug 2026; the same run found the private-API dependency described in §15.
 - **Corrections (defects, not decisions — recorded here because the document is locked).** Each was a stated intent that the mechanism didn't actually deliver:
   - `/healthz` moved from schema-version *equality* to `applied ⊇ expected`. Equality guaranteed that any rolled-back release would declare itself unhealthy against the schema the failed release had already migrated — an unrecoverable rollback loop that silently negated the N-1 rule it sat next to.
   - `render.py` gains escape-by-default helpers with an explicit `raw()` opt-out, closing a stored-XSS path. The JS half had four CI checks guarding `innerHTML`; the server half, which builds HTML from f-strings, had none.

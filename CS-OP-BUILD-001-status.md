@@ -1,9 +1,9 @@
 # CS-OP-BUILD-001 — Build status
 
-- **As at:** 20 August 2026
+- **As at:** 21 August 2026
 - **Repo:** `C:\Dev\operations` → `git@github-roberts:CommsecurityAU/operations.git`
 - **Spec:** CS-OP-ARCH-002 (locked; changes require an ADR in §16)
-- **Phase:** STP-0 Foundation, in progress
+- **Phase:** STP-0 Foundation — **code complete, CI green, image published**
 
 ---
 
@@ -12,26 +12,34 @@
 | Piece | State |
 |---|---|
 | `ops/migrations/001_foundation.sql` | Done — entities, 144 periods, identity, project register, job-code worklist, job-number sequence |
-| `ops/db.py` | Done — connection split, pragmas, migration runner, health check, first write methods |
+| `ops/db.py` | Done — write/read connection split, pragmas, migration runner, health check, write methods |
+| `ops/secrets.py` | Done — `secret://` resolver, 0600 store, stdin-only writes, fail-loud boot |
+| `ops/http_util.py` | Done — four hardening settings, routing, security headers, CSRF |
+| `ops/auth.py` | Done — OIDC fail-closed claims, HMAC identity-only sessions, per-request roles |
+| `ops/config.py`, `ops/backup.py`, `ops/main.py` | Done — boots end to end |
 | `tools/import_register.py` | Done — validates and imports the FY27 register, one-shot |
-| `tests/` | 48 tests, ~0.25 s on Linux, ~1 s on Windows |
-| `ops/secrets.py` | **Next** |
-| `ops/auth.py`, `ops/http_util.py`, `ops/main.py` | Not started |
-| `ops/static/`, `ops/modules/` | Not started |
-| `Dockerfile`, `Makefile`, `.github/workflows/ci.yml` | Not started |
+| `Dockerfile`, `Makefile`, `.github/workflows/ci.yml` | Done — full pipeline green |
+| `tests/` | **189 tests**, ~4 s Linux, ~6 s Windows |
+| `ops/static/` | **Next** |
+| `ops/modules/`, `ops/render.py` | Not started |
 
-Run the suite:
+Measured against the §14 budgets: **image 47 MB** (limit 75), **suite ~4 s**
+(limit 10), **pyright --strict 0 errors**, **0 pip deps**, **0 npm**.
 
 ```
 py -W error::ResourceWarning -m unittest discover -s tests     # Windows
-python3 -W error::ResourceWarning -m unittest discover -s tests # container / CI
+make test                                                      # container / CI
+make check                                                     # test + gates
 ```
+
+STP-0 was verified end to end against a running container, not only in
+tests: `/healthz` returns `{"ok": true, ...}`, and the acceptance path was
+walked over HTTP — sign in with zero grants → 403, admin grants viewer →
+same cookie, no re-login → 59 projects and $3,520,041.73, token bump → 401.
 
 ---
 
 ## Source data — validated, reconciles to zero
-
-The FY27 register was cleaned at source during the 20 Aug review. Final state:
 
 | | |
 |---|---:|
@@ -42,40 +50,21 @@ The FY27 register was cleaned at source during the 20 Aug review. Final state:
 | Residual | $0.00 |
 
 `Purchase Order == Invoiced Prior + Contract Value FY27` holds on every row.
-The importer **asserts** this rather than deriving it; one bad row aborts the
-whole import before anything is written.
+The importer **asserts** this rather than deriving it; one bad row aborts
+the whole import before anything is written. Pinned in
+`tests/test_import_register.py` as cents: `723190700`, `371186527`,
+`352004173`.
 
-Pinned in `tests/test_import_register.py` as cents: `723190700`,
-`371186527`, `352004173`. A source change that moves these fails the build
-and requires editing the pins deliberately.
+The `Invoiced FY26` → `Invoiced Prior` rename was the important cleanup:
+five DLP projects had FY25 billing the old column never reached, so
+sourcing opening balances from it would have understated them by
+**$858,354** and shown that much in phantom orders in hand.
 
-### What was fixed at source
-
-- `JN-676` and `JN-5416` were genuine collisions — one code across unrelated
-  sites, so their financial history was merged. Brennan Pl reissued to
-  `JN-6694`; 88 Robertson St set to `TBA`. **Zero collisions remain.**
-- `Invoiced FY26` renamed to `Invoiced Prior` and merged with pre-FY26
-  billing. This was the important one: five DLP projects had FY25 billing the
-  old column never reached, so sourcing opening balances from it would have
-  understated them by **$858,354** and shown that much in phantom orders in
-  hand.
-- Two phantom `$22,689` rows deleted (copy-paste of 36 Wellington's value),
-  `200 Vic` PO corrected to $400, two PDNSW double-counts cleared,
-  `JN 5108` → `JN-5108`, `Adhoc Service Calls` removed.
-
-### Worklist carried into the platform — 8 rows, no merged history
-
-- **Class B, 6:** `TBA` ×5 (PDNSW SOC, 88 Robertson St, Dover House,
-  130 Little Collins, Maitland storage cage), `na` ×1 (CommSecurity Office –
-  KODE OS). Each needs a job number issued or a not-project-work decision.
-  Issuance moves to this platform, so most self-resolve.
-- **Class C, 2 codes:** `JN-4335`, `JN-4407`. **Not defects** — one customer
-  job number covering a site tracked as two projects by work type. This is
-  why `job_code_alias` is one-to-many.
-- **Leave alone:** `P-3655`, `P-3707`, `JN-CommS` are valid codes that fail a
-  `JN-\d+` pattern. A clever normaliser corrupts them.
-
-Resolution gates **STP-5** (the dashboard), not STP-1.
+**Worklist carried in — 8 rows, no merged history.** Class B (6): `TBA` ×5,
+`na` ×1. Class C (2 codes): `JN-4335`, `JN-4407` — one customer job number
+per site, two projects by work type, which is why `job_code_alias` is
+one-to-many. Leave alone: `P-3655`, `P-3707`, `JN-CommS`. Resolution gates
+**STP-5**, not STP-1.
 
 ---
 
@@ -84,48 +73,81 @@ Resolution gates **STP-5** (the dashboard), not STP-1.
 1. **Register the OIDC client.** Cloud project inside the Workspace org,
    consent screen **Internal**, redirect URIs
    `https://ops.commsecurity.com.au/auth/callback` and
-   `http://localhost:8080/auth/callback`. Blocks STP-0's first exit criterion
-   and nothing earlier. *Only outstanding action; all decisions are made.*
-2. **Confirm the corporate tax rate with the accountant.** 25% (2500 bp) is
-   recorded as an estimate. The 25%/30% split in the source may be a real
-   difference between entities rather than an error — eligibility is assessed
-   annually and per legal entity.
-3. **Before STP-1:** recompute the three pinned FY27 totals under both
+   `http://localhost:8080/auth/callback`. **The only thing between here and
+   STP-0's exit criteria.**
+2. **Tag `v0.1.0`.** Until a release tag exists the `n1` job no-ops with
+   "no release tag yet", so the next migration gets no N-1 check — which is
+   exactly when one is worth having.
+3. **Confirm the corporate tax rate with the accountant.** 25% (2500 bp) is
+   recorded as an estimate; the 25%/30% split in the source may be a real
+   per-entity difference.
+4. **Before STP-1:** recompute the three pinned FY27 totals under both
    rounding modes and record any divergence (ADR-15).
-4. **Minor, source data:** 50 Queens Rd shows *Live, 50%* on the Project tab
+5. **Minor, source data:** 50 Queens Rd shows *Live, 50%* on the Project tab
    and *DLP* on the register. One is stale.
 
 ---
 
 ## Things that cost time — don't rediscover them
 
-- **`sqlite3.executescript()` does not roll back on failure.** It leaves the
+**Tests that pass for the wrong reason**
+
+- Concurrency tests built from SINGLE SQL statements are theatre. The first
+  pair here passed with the write lock deleted, because SQLite's own mutex
+  makes single statements atomic. A lost update needs a read AND a write in
+  one transaction. Mutation-test every safeguard: remove it, confirm a test
+  fails. Done for the lock, the four secrets safeguards, seven HTTP
+  hardening settings and eight auth checks.
+- `server.timeout` is NOT the connection read timeout — it is the
+  `handle_request()` poll interval. The guarantee comes from the HANDLER
+  class attribute. The original code had no read timeout at all while a
+  green test claimed otherwise.
+- A gate's exit code must come from the gate. `pyright … || pyright …`
+  meant the retry decided the exit status, so the type gate could not fail.
+
+**Things only Windows catches** (CI is Linux, container is Alpine)
+
+- Read connections opened by other threads were never closed. Linux unlinks
+  open files happily; Windows raises `WinError 32`.
+- The connection-cap 503 was lost to an RST, because closing a socket with
+  unread data in the receive buffer discards queued output. Linux delivered
+  it anyway; Windows raised `WinError 10053`. **Removing the fix still
+  passes on Linux** — only detectable on Windows.
+- Keep test teardown strict (no `ignore_errors`); that failure is the leak
+  detector. Run the suite on Windows periodically.
+
+**Platform and library traps**
+
+- `sqlite3.executescript()` does not roll back on failure — it leaves the
   transaction open and completed statements in place. The runner's explicit
-  `rollback()` is why a failed migration doesn't leave a half-applied schema.
-- **It also commits any pending transaction first**, so the runner must wrap
-  the script text in `BEGIN`/`COMMIT` — a `BEGIN` issued beforehand is
-  discarded.
-- **Concurrency tests built from single SQL statements are theatre.** The
-  first pair here passed with the write lock deleted, because SQLite's own
-  mutex makes single statements atomic. Mutation-test every safeguard: remove
-  it, confirm a test fails.
-- **Run the suite on Windows periodically.** It caught a read-connection leak
-  that Linux hides — open files unlink fine there, so CI would have shipped
-  it. Keep test teardown strict; that failure is the leak detector.
-- **SQLite has no `%y` in `strftime`**, only `%Y`.
-- On Windows use `py`, not `python3`. Inside the container and in CI,
-  `python3` is correct — don't change it there.
+  `rollback()` is what stops a failed migration leaving a half-applied
+  schema.
+- It also commits any pending transaction first, so the runner must wrap the
+  script text in `BEGIN`/`COMMIT`; a `BEGIN` issued beforehand is discarded.
+- SQLite has no `%y` in `strftime`, only `%Y`.
+- No private stdlib APIs. `ssl._ssl._test_decode_cert` was load-bearing for
+  cert-expiry warnings until pyright found it. Replaced with a DER walk,
+  verified against openssl.
+- `serve_forever()` polls at 0.5 s and `shutdown()` waits for the next poll
+  — 500 ms of teardown per socket test. Pass `poll_interval=0.01` in tests
+  (14 s → 2.4 s).
+- The access log must record what was actually SENT. Handlers that write
+  their own response (redirects, 204s) return `None`, and defaulting those
+  to 200 hides exactly the responses you go looking for during an incident.
+- On Windows use `py`, not `python3`; `curl` is an alias for
+  `Invoke-WebRequest` (use `curl.exe` or `irm`). Inside the container and in
+  CI, `python3` is correct — don't change it there.
+- PowerShell here-strings can drop a leading dot: `.dockerignore` saved as
+  `dockerignore` and silently sent the whole repo as build context.
 
 ---
 
 ## Resume point
 
-`ops/secrets.py` — `secret://` resolver, 0600 local store written from stdin
-only, `list` printing names only, explicit provider selection with no
-fallback chain, and fail-loud boot so a missing `OIDC_CLIENT_SECRET` reaches
-the health gate instead of starting with a blank credential.
+`ops/static/` — `index.html`, `tokens.css`, `base.css`, `app.js` exporting
+`h` / `api` / `fmt`, and `datatable.js`. Plus `tests/js_guardrails.py`:
+no `innerHTML` anywhere in `static/` (including inside `h()`), `fetch` only
+inside `api()`, no CDN imports, under 50 KB per page.
 
-Note for that build: `0600` is POSIX and does nothing on Windows. The store
-works for local dev either way, but the permission guarantee exists only in
-the container — the code should assert the mode where it can and say so
-where it can't, rather than silently skipping the check.
+This turns `/api/projects` into the project register screen — the first
+thing anyone other than Richard will actually look at.

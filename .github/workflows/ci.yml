@@ -1,0 +1,134 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+env:
+  IMAGE: ghcr.io/commsecurityau/cs-ops
+  # Image budget is 75 MB against an expected ~60 (§14). A 2x headroom gate
+  # catches nothing -- it only fires long after the drift it exists to
+  # prevent has already happened.
+  MAX_IMAGE_BYTES: 78643200
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # N-1 check needs the previous release tag
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Suite
+        run: python3 -W error::ResourceWarning -m unittest discover -s tests -v
+
+      # The gates are unittest cases, so they already ran above. This step
+      # exists to name them separately in the CI log -- when a build goes
+      # red, "gates" and "tests" are different conversations.
+      - name: Gates (deps, secrets, base image pin, migrations)
+        run: python3 -m unittest tests.test_gates -v
+
+      - name: Types
+        run: |
+          pip install pyright==1.1.389
+          pyright --outputjson ops/ tools/ || pyright ops/ tools/
+
+      - name: Suite wall time under 10 s
+        run: |
+          start=$(date +%s%N)
+          python3 -m unittest discover -s tests >/dev/null 2>&1
+          ms=$(( ($(date +%s%N) - start) / 1000000 ))
+          echo "suite: ${ms} ms"
+          test "$ms" -lt 10000 || { echo "suite exceeded the 10 s budget"; exit 1; }
+
+  n1:
+    # A migration must not break the PREVIOUS release's code, because
+    # rollback is automatic and nothing rolls the schema back for you.
+    # This makes N-1 a gate rather than a discipline to remember.
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Previous release tests against the new schema head
+        run: |
+          prev=$(git tag --list 'v*' --sort=-v:refname | head -1)
+          if [ -z "$prev" ]; then echo "no release tag yet; N-1 not applicable"; exit 0; fi
+          echo "checking $prev against the new migration head"
+          mkdir -p /tmp/head && cp -r ops/migrations /tmp/head/
+          git checkout --quiet "$prev"
+          rm -rf ops/migrations && cp -r /tmp/head/migrations ops/
+          python3 -W error::ResourceWarning -m unittest discover -s tests
+
+  image:
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build (retry transient pulls -- red CI must mean OUR code broke)
+        run: |
+          for i in 1 2 3; do
+            docker build -t "$IMAGE:${GITHUB_SHA::7}" -t "$IMAGE:latest" . && break
+            echo "build attempt $i failed"; sleep 5
+          done
+          docker image inspect "$IMAGE:${GITHUB_SHA::7}" >/dev/null
+
+      - name: In-image assertions
+        run: |
+          docker run --rm "$IMAGE:${GITHUB_SHA::7}" python3 -c "
+          import sqlite3, sys, os
+          v = tuple(int(p) for p in sqlite3.sqlite_version.split('.'))
+          assert v >= (3, 37, 0), f'SQLite {sqlite3.sqlite_version} < 3.37'
+          # auth.py trusts TLS alone for an unsigned id_token payload, so a
+          # missing trust store silently removes the entire trust boundary.
+          assert os.path.exists('/etc/ssl/certs/ca-certificates.crt'), 'no CA bundle'
+          print('sqlite', sqlite3.sqlite_version, '| ca bundle present')
+          "
+      - name: Zero pip packages beyond the base
+        run: |
+          n=$(docker run --rm "$IMAGE:${GITHUB_SHA::7}" pip list --format=freeze | wc -l)
+          echo "pip packages: $n"
+          test "$n" -le 3 || { docker run --rm "$IMAGE:${GITHUB_SHA::7}" pip list; exit 1; }
+
+      - name: Smoke test the real entrypoint
+        run: |
+          docker run -d --name smoke -p 8080:8080 \
+            -e OPS_TLS=off -e OPS_PORT=8080 \
+            -e OIDC_CLIENT_ID=ci -e OIDC_REDIRECT_URI=http://localhost:8080/auth/callback \
+            -e OPS_SECRETS_PATH=/data/secrets/store.json \
+            "$IMAGE:${GITHUB_SHA::7}" sh -c \
+            "printf ci-secret | python3 -m ops.secrets set OIDC_CLIENT_SECRET && python3 -m ops.main"
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/healthz || true)
+            [ "$code" = "200" ] && break
+            sleep 1
+          done
+          docker logs smoke
+          test "$code" = "200" || { echo "healthz never returned 200"; exit 1; }
+          docker rm -f smoke
+
+      - name: Size gate
+        run: |
+          bytes=$(docker image inspect "$IMAGE:${GITHUB_SHA::7}" --format='{{.Size}}')
+          echo "image: $((bytes / 1048576)) MB (limit $((MAX_IMAGE_BYTES / 1048576)) MB)"
+          test "$bytes" -lt "$MAX_IMAGE_BYTES" || exit 1
+
+      - name: Push
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:${GITHUB_SHA::7}"
+          docker push "$IMAGE:latest"

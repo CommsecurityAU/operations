@@ -1,0 +1,17 @@
+# Only ops/ is copied, but keep the build context small and make it
+# impossible for a stray secret or database to reach a layer.
+.git
+.github
+tests
+tools
+data
+*.db
+*.db-wal
+*.db-shm
+__pycache__
+*.pyc
+.venv
+*.md
+Makefile
+.gitignore
+.gitattributes

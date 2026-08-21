@@ -149,6 +149,11 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------- output
     def _send(self, status, body=b"", content_type="application/json",
               extra_headers=None):
+        # Record what was ACTUALLY sent. Handlers that write their own
+        # response (redirects, 204s) return None, and inferring 200 for them
+        # makes the access log lie about exactly the responses you most want
+        # to see during an incident.
+        self._status = status
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))

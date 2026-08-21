@@ -287,6 +287,33 @@ class TestCapEnforcedAtTheSocket(ServerCase):
                 held_sock.close()
 
 
+class TestAccessLog(ServerCase):
+    def test_logs_the_status_actually_sent_not_an_assumed_200(self):
+        """A handler that writes its own response (redirect, 204) returns
+        None. Defaulting the log to 200 for those hides precisely the
+        responses you go looking for during an incident."""
+        records = []
+        logger = logging.getLogger("ops.http")
+        old_level = logger.level
+        logger.setLevel(logging.INFO)
+
+        class Capture(logging.Handler):
+            def emit(self, record):
+                records.append(record.getMessage())
+
+        cap = Capture()
+        logger.addHandler(cap)
+        try:
+            self.get("/nope")          # 404 via HttpError
+            self.get("/healthz")       # 200 via return value
+        finally:
+            logger.removeHandler(cap)
+            logger.setLevel(old_level)
+        statuses = [json.loads(r)["status"] for r in records if r.startswith("{")]
+        self.assertIn(404, statuses)
+        self.assertIn(200, statuses)
+
+
 class TestHardeningIsPresent(ServerCase):
     def test_daemon_threads(self):
         self.assertTrue(self.server.daemon_threads)

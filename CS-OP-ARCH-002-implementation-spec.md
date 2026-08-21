@@ -480,6 +480,7 @@ fleet manager, health-gated on /healthz, auto-rollback.
   - Image budget 120 MB → 75 MB against an expected ~60; a 2× headroom gate only fires long after the drift it exists to catch.
   - The p95 fixture becomes a committed, seed-deterministic `tools/fixture.py` — a trend line whose input silently changes is not a trend line.
   - The entropy grep ships with an allowlist from day one, or it fires on sha256 fixtures and image digests and gets disabled by week three.
+- **Delivery plan: see CS-OP-STP-001**, which supersedes ARCH-001 §11 in full. That section was written against Go/Postgres/Caddy and quotes pre-cleanup figures; three of its exit criteria are contradicted by ADR-21, ADR-23 and ADR-25. The migration-to-STP mapping lives there rather than being inferred.
 - Carried from ARCH-001 + review: data model §5 (with `claim_line_revision`, `owner_type`/`owner_id`, roles enumerated, intercompany flags deferred until Q10 answered), phases §11 (+ grid prototype in STP-0; answer historical-scope Q3 before the STP-1 importer; batch bulk imports), risks §12, open questions §13.
 
 ## 17. STP-0 exit criteria

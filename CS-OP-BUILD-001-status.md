@@ -3,6 +3,7 @@
 - **As at:** 21 August 2026
 - **Repo:** `C:\Dev\operations` → `git@github-roberts:CommsecurityAU/operations.git`
 - **Spec:** CS-OP-ARCH-002 (locked; changes require an ADR in §16)
+- **Plan:** CS-OP-STP-001 (delivery phases; supersedes ARCH-001 §11)
 - **Phase:** STP-0 Foundation — **code complete, CI green, image published**
 
 ---
@@ -70,20 +71,26 @@ one-to-many. Leave alone: `P-3655`, `P-3707`, `JN-CommS`. Resolution gates
 
 ## Open items
 
+0. **Perform one documented restore, from the off-box copy.** An unmet
+   STP-0 exit criterion that has been quietly deferred. A backup nobody has
+   restored is a hypothesis, not a control.
 1. **Register the OIDC client.** Cloud project inside the Workspace org,
    consent screen **Internal**, redirect URIs
    `https://ops.commsecurity.com.au/auth/callback` and
    `http://localhost:8080/auth/callback`. **The only thing between here and
    STP-0's exit criteria.**
-2. **Tag `v0.1.0`.** Until a release tag exists the `n1` job no-ops with
+2. **Make the Project List tab read-only when STP-1 closes.** The control
+   against a shadow system, described in the plan as not optional, is
+   currently not running on any tab.
+3. **Tag `v0.1.0`.** Until a release tag exists the `n1` job no-ops with
    "no release tag yet", so the next migration gets no N-1 check — which is
    exactly when one is worth having.
-3. **Confirm the corporate tax rate with the accountant.** 25% (2500 bp) is
+4. **Confirm the corporate tax rate with the accountant.** 25% (2500 bp) is
    recorded as an estimate; the 25%/30% split in the source may be a real
    per-entity difference.
-4. **Before STP-1:** recompute the three pinned FY27 totals under both
+5. **Before STP-1:** recompute the three pinned FY27 totals under both
    rounding modes and record any divergence (ADR-15).
-5. **Minor, source data:** 50 Queens Rd shows *Live, 50%* on the Project tab
+6. **Minor, source data:** 50 Queens Rd shows *Live, 50%* on the Project tab
    and *DLP* on the register. One is stale.
 
 ---

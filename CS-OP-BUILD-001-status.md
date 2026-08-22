@@ -4,6 +4,7 @@
 - **Repo:** `C:\Dev\operations` → `git@github-roberts:CommsecurityAU/operations.git`
 - **Spec:** CS-OP-ARCH-002 (locked; changes require an ADR in §16)
 - **Plan:** CS-OP-STP-001 (delivery phases; supersedes ARCH-001 §11)
+- **Runbook:** CS-OP-RUN-001 (restore; rehearsal record)
 - **Phase:** STP-0 Foundation — **code complete, CI green, image published**
 
 ---
@@ -20,7 +21,8 @@
 | `ops/config.py`, `ops/backup.py`, `ops/main.py` | Done — boots end to end |
 | `tools/import_register.py` | Done — validates and imports the FY27 register, one-shot |
 | `Dockerfile`, `Makefile`, `.github/workflows/ci.yml` | Done — full pipeline green |
-| `tests/` | **189 tests**, ~4 s Linux, ~6 s Windows |
+| `tools/restore.py`, `tools/offbox_sync.sh` | Done — rehearsed 21 Aug, 0.03 s |
+| `tests/` | **206 tests**, ~4 s Linux |
 | `ops/static/` | **Next** |
 | `ops/modules/`, `ops/render.py` | Not started |
 
@@ -71,9 +73,14 @@ one-to-many. Leave alone: `P-3655`, `P-3707`, `JN-CommS`. Resolution gates
 
 ## Open items
 
-0. **Perform one documented restore, from the off-box copy.** An unmet
-   STP-0 exit criterion that has been quietly deferred. A backup nobody has
-   restored is a hypothesis, not a control.
+0. **Install `tools/offbox_sync.sh` on the VM** (hourly cron). The restore
+   rehearsal passed on 21 Aug, but the off-box copy it used was made by
+   hand — nothing is syncing on a schedule yet, so there is currently no
+   off-box backup.
+0b. **Put `OIDC_CLIENT_SECRET` in the company password manager.** The backup
+   deliberately excludes `secrets/`, so if that value exists only on the
+   `/data` volume, a volume loss is unrecoverable without re-registering
+   the OIDC client.
 1. **Register the OIDC client.** Cloud project inside the Workspace org,
    consent screen **Internal**, redirect URIs
    `https://ops.commsecurity.com.au/auth/callback` and

@@ -3,7 +3,7 @@
 - **As at:** 21 August 2026
 - **Status:** Live. **Supersedes CS-OP-ARCH-001 §11 in full.**
 - **Depends on:** CS-OP-ARCH-002 (stack, budgets, ADR-08…26)
-- **Companion:** CS-OP-BUILD-001 (build status, resume point)
+- **Companions:** CS-OP-BUILD-001 (build status), CS-OP-RUN-001 (restore runbook)
 
 ARCH-001 §11 was written against a stack that no longer exists — Go,
 PostgreSQL, Caddy, a three-service compose file. ADR-08 through ADR-10
@@ -93,12 +93,17 @@ been proven by restoring it**.
 - [x] One deploy performed end to end
 - [ ] **OIDC client registered** — Cloud project inside the Workspace org,
       consent screen **Internal**, both redirect URIs
-- [ ] **One documented restore performed end to end, from the off-box copy**
+- [x] **One documented restore performed end to end, from the off-box copy** — 21 Aug 2026, full volume loss, 0.03 s, verified over HTTP (CS-OP-RUN-001)
 
-The last two are the whole of what stands between here and STP-0 being
-honestly complete. The restore is the one that has been quietly deferred:
-§12 says backups on the volume they protect are not backups, and a backup
-nobody has restored is a hypothesis rather than a control.
+**The OIDC registration is now the only outstanding item.** The restore
+rehearsal was performed on 21 Aug 2026 and found what a rehearsal is for:
+the backup excludes `secrets/` and `tls/`, so the app does not boot after a
+restore until they are replaced. Deliberate, but invisible from reading §12,
+and now step 4 of CS-OP-RUN-001.
+
+Outstanding from the rehearsal: **install `tools/offbox_sync.sh` on the VM**.
+The off-box copy the rehearsal used was created by hand; nothing is
+syncing on a schedule yet.
 
 ---
 

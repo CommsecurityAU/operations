@@ -30,6 +30,14 @@ from ops.secrets import SecretError, build_provider, resolve_config
 log = logging.getLogger("ops.main")
 
 MIGRATIONS = os.path.join(os.path.dirname(__file__), "migrations")
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+MIME = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+}
 MODULES = []          # §6. Registered here, explicitly. Empty at STP-0.
 CERT_WARN_DAYS = 30
 
@@ -125,6 +133,37 @@ def check_cert_expiry(cert_path, warn_days=CERT_WARN_DAYS, now=None):
 def build_router(db, oidc, key, cfg):
     r = Router()
 
+    def _send_static(handler, name):
+        """Static files, no-cache (§3). The asset set is tiny and internal,
+        so fingerprinting would be complexity without a benefit.
+
+        The router pattern already excludes `/`, but the containment check
+        stays: relying on a regex elsewhere in the file to keep this path
+        safe is how traversal bugs survive a refactor.
+        """
+        path = os.path.normpath(os.path.join(STATIC_DIR, name))
+        if os.path.commonpath([path, STATIC_DIR]) != STATIC_DIR:
+            raise HttpError(404, "not found")
+        if not os.path.isfile(path):
+            raise HttpError(404, "not found")
+        ext = os.path.splitext(path)[1]
+        if ext not in MIME:
+            raise HttpError(404, "not found")
+        with open(path, "rb") as f:
+            body = f.read()
+        handler._send(200, body, content_type=MIME[ext],
+                      extra_headers={"Cache-Control": "no-cache"})
+
+    @r.route("/", role="public")
+    def index(handler, user):
+        _send_static(handler, "index.html")
+        return None
+
+    @r.route("/static/{name}", role="public")
+    def static_file(handler, user, name):
+        _send_static(handler, name)
+        return None
+
     @r.route("/healthz", role="public")
     def healthz(handler, user):
         report = db.health()
@@ -178,16 +217,18 @@ def build_router(db, oidc, key, cfg):
             return 200, {"projects": []}
         marks = ",".join("?" * len(entity_ids))
         # Column names come from the VIEW (project_id/project_name), not the
-        # table. SELECT column names are the JSON field names are the JS
-        # property names (§5), so the aliases are the API contract.
+        # table. SELECT names are the JSON field names are the JS property
+        # names (§5), so the aliases are the API contract.
         return 200, {"projects": db.query(
-            f"""SELECT project_id   AS id,
-                       project_name AS name,
-                       job_code, status, purchase_order_cents,
-                       invoiced_prior_cents, orders_in_hand_cents
-                FROM v_project_orders_in_hand
-                WHERE entity_id IN ({marks})
-                ORDER BY project_name""", tuple(entity_ids))}
+            f"""SELECT v.project_id   AS id,
+                       v.project_name AS name,
+                       v.job_code, v.status, v.purchase_order_cents,
+                       v.invoiced_prior_cents, v.orders_in_hand_cents,
+                       p.needs_resolution
+                FROM v_project_orders_in_hand v
+                JOIN project p ON p.id = v.project_id
+                WHERE v.entity_id IN ({marks})
+                ORDER BY v.project_name""", tuple(entity_ids))}
 
     for module in MODULES:
         module.register(r, db)

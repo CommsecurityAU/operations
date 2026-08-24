@@ -1,0 +1,264 @@
+/* base.css — shell, controls, table. Every value from tokens.css. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--s-0);
+  color: var(--t-0);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ------------------------------------------------------------- shell */
+.shell {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--u6);
+  padding: 0 var(--u4);
+  height: 44px;
+  background: var(--s-1);
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-size: var(--fs-display);
+  font-weight: 700;
+  letter-spacing: var(--track-display);
+  line-height: var(--lh-tight);
+  text-transform: uppercase;
+}
+/* The one place the accent appears when nothing is wrong. */
+.wordmark em { font-style: normal; color: var(--accent); }
+
+.nav { display: flex; gap: var(--u4); margin-left: var(--u4); }
+.nav a {
+  color: var(--t-1);
+  font-size: var(--fs-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  padding: var(--u) 0;
+  border-bottom: 2px solid transparent;
+}
+.nav a:hover { color: var(--t-0); text-decoration: none; }
+.nav a[aria-current="page"] { color: var(--t-0); border-bottom-color: var(--accent); }
+
+.identity {
+  margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: var(--u2);
+  font-size: var(--fs-small);
+  color: var(--t-1);
+}
+.identity .roles {
+  font-family: var(--font-data);
+  font-size: var(--fs-micro);
+  color: var(--t-2);
+}
+
+.main { overflow: auto; padding: var(--u4); }
+
+.statusbar {
+  display: flex;
+  gap: var(--u4);
+  align-items: center;
+  padding: 0 var(--u4);
+  height: 24px;
+  background: var(--s-1);
+  border-top: 1px solid var(--line);
+  font-family: var(--font-data);
+  font-size: var(--fs-micro);
+  color: var(--t-2);
+}
+
+/* -------------------------------------------------------- page header */
+.page-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--u4);
+  margin-bottom: var(--u4);
+}
+.page-head h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-display);
+  font-weight: 700;
+  letter-spacing: var(--track-display);
+  line-height: var(--lh-tight);
+}
+.eyebrow {
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--t-2);
+}
+
+/* ----------------------------------------------------------- figures */
+/* Money is never body text. It is data, and it lines up. */
+.figures {
+  display: flex;
+  gap: 0;
+  border: var(--border);
+  background: var(--s-1);
+  margin-bottom: var(--u4);
+}
+.figure {
+  padding: var(--u3) var(--u4);
+  border-right: 1px solid var(--line);
+  min-width: 150px;
+}
+.figure:last-child { border-right: 0; }
+.figure .label {
+  display: block;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--t-2);
+  margin-bottom: var(--u);
+}
+.figure .value {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.0625rem;
+  color: var(--t-0);
+}
+.figure.is-primary .value { color: var(--accent); }
+.figure.is-exception .value { color: var(--alarm); }
+
+/* ---------------------------------------------------------- controls */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--u2);
+  align-items: center;
+  padding: var(--u2);
+  background: var(--s-2);
+  border: var(--border);
+  border-bottom: 0;
+}
+
+input[type="search"], input[type="text"], select, button {
+  height: var(--h-control);
+  padding: 0 var(--u2);
+  background: var(--s-1);
+  color: var(--t-0);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: var(--fs-small);
+}
+input[type="search"] { min-width: 200px; }
+select { cursor: pointer; }
+button { cursor: pointer; background: var(--s-2); }
+button:hover:not(:disabled) { background: var(--s-3); }
+button:disabled { color: var(--t-2); cursor: default; }
+button.primary { border-color: var(--accent-dim); color: var(--accent); }
+
+.spacer { margin-left: auto; }
+.count {
+  font-family: var(--font-data);
+  font-size: var(--fs-micro);
+  color: var(--t-2);
+}
+
+/* ------------------------------------------------------------- table */
+.table-wrap { border: var(--border); background: var(--s-1); }
+
+table { width: 100%; border-collapse: collapse; }
+
+thead th {
+  position: sticky;
+  top: 0;
+  background: var(--s-2);
+  text-align: left;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--t-1);
+  padding: var(--u2) var(--u3);
+  border-bottom: 1px solid var(--line-strong);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+thead th:hover { color: var(--t-0); }
+thead th .sort { color: var(--accent); margin-left: var(--u); }
+
+tbody td {
+  padding: var(--u2) var(--u3);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: var(--s-3); }
+
+/* Every money and quantity cell, without exception. */
+.num, .mono {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+.num { text-align: right; }
+.neg { color: var(--alarm); }
+
+.muted { color: var(--t-1); }
+
+/* A flagged row is the exception, so it gets the only colour on the row —
+ * a hairline in the left margin rather than a highlight, because a
+ * highlighted row is harder to read and this one still has to be read. */
+tbody tr.flagged td:first-child {
+  box-shadow: inset 2px 0 0 var(--warn);
+}
+
+.tag {
+  display: inline-block;
+  padding: 0 var(--u);
+  font-family: var(--font-data);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.04em;
+  color: var(--t-1);
+  border: 1px solid var(--line-strong);
+}
+.tag.warn { color: var(--warn); border-color: var(--accent-dim); }
+
+/* -------------------------------------------------- states, not moods */
+.state {
+  padding: var(--u8) var(--u4);
+  text-align: center;
+  color: var(--t-1);
+}
+.state h2 {
+  margin: 0 0 var(--u2);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: var(--track-display);
+  color: var(--t-0);
+}
+.state p { margin: 0; font-size: var(--fs-small); }
+.state.is-error h2 { color: var(--alarm); }
+
+@media (max-width: 720px) {
+  .figures { flex-wrap: wrap; }
+  .figure { flex: 1 1 50%; border-bottom: 1px solid var(--line); }
+  .nav { display: none; }
+}

@@ -1,0 +1,75 @@
+/* tokens.css — the ONLY file containing colour, type or spacing literals.
+ * Components read custom properties; a literal in a component is a review
+ * reject (CS-OP-ARCH-002 §7).
+ *
+ * ISA-101 discipline: colour carries meaning. Greys are the normal state,
+ * amber marks the thing you are meant to look at, and saturation is
+ * reserved for exceptions. A screen where nothing is wrong should be
+ * almost entirely monochrome — so when something IS wrong, it is the only
+ * coloured thing on the page and you cannot miss it.
+ */
+
+:root {
+  /* ---- surfaces: near-black, four steps, no gradients ---- */
+  --s-0: #0e1012;   /* page */
+  --s-1: #14171a;   /* panel */
+  --s-2: #1b1f23;   /* raised: header row, controls */
+  --s-3: #23282d;   /* hover */
+
+  /* ---- hairlines ---- */
+  --line:        #2b3137;
+  --line-strong: #3a4249;
+
+  /* ---- text ---- */
+  --t-0: #dfe3e6;   /* primary */
+  --t-1: #9aa4ac;   /* secondary, labels */
+  --t-2: #6b767e;   /* tertiary, disabled */
+
+  /* ---- the one accent ---- */
+  --accent:     #c8922f;
+  --accent-dim: #6d5220;
+
+  /* ---- exceptions only: errors, negative variance, flagged rows ---- */
+  --alarm:  #c4543a;
+  --warn:   #b8862b;
+  --ok:     #5c8a6a;
+
+  /* ---- type: three layers, no webfonts (no CDN, §7 guardrail) ---- */
+  --font-display: "Segoe UI Variable Display", "Segoe UI", ui-sans-serif,
+                  system-ui, "Helvetica Neue", Arial, sans-serif;
+  --font-ui:      "Segoe UI Variable Text", "Segoe UI", ui-sans-serif,
+                  system-ui, "Helvetica Neue", Arial, sans-serif;
+  --font-data:    ui-monospace, "Cascadia Mono", "SF Mono", "Menlo",
+                  "Consolas", monospace;
+
+  --fs-display: 1.375rem;
+  --fs-body:    0.8125rem;
+  --fs-small:   0.75rem;
+  --fs-micro:   0.6875rem;
+
+  --lh-tight: 1.15;
+  --lh-body:  1.45;
+
+  /* Display is the same grotesk, cut hard: heavy weight, negative
+   * tracking, uppercase. Without webfonts, the type personality has to
+   * come from treatment rather than from a face. */
+  --track-display: -0.02em;
+  --track-label:    0.09em;
+
+  /* ---- one spacing scale, one control height ---- */
+  --u: 4px;
+  --u2: calc(var(--u) * 2);
+  --u3: calc(var(--u) * 3);
+  --u4: calc(var(--u) * 4);
+  --u6: calc(var(--u) * 6);
+  --u8: calc(var(--u) * 8);
+  --h-control: 26px;
+
+  /* ---- flat, square, hairline ---- */
+  --radius: 0;
+  --border: 1px solid var(--line);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

@@ -279,6 +279,54 @@ class Stp0Case(unittest.TestCase):
         return f"{auth.COOKIE_NAME}={token}"
 
 
+class TestStaticFiles(Stp0Case):
+    def raw(self, path):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        c.request("GET", path, headers={"Sec-Fetch-Site": "same-origin"})
+        r = c.getresponse()
+        body = r.read()
+        headers = dict(r.getheaders())
+        c.close()
+        return r.status, headers, body
+
+    def test_index_is_served_at_root(self):
+        status, headers, body = self.raw("/")
+        self.assertEqual(status, 200)
+        self.assertIn("text/html", headers["Content-Type"])
+        self.assertIn(b"<html", body)
+
+    def test_assets_are_served_with_correct_types(self):
+        for path, expected in [("/static/app.js", "javascript"),
+                               ("/static/base.css", "css"),
+                               ("/static/tokens.css", "css")]:
+            status, headers, _ = self.raw(path)
+            self.assertEqual(status, 200, path)
+            self.assertIn(expected, headers["Content-Type"], path)
+
+    def test_static_is_no_cache(self):
+        _s, headers, _b = self.raw("/static/app.js")
+        self.assertEqual(headers["Cache-Control"], "no-cache")
+
+    def test_path_traversal_is_refused(self):
+        """The router pattern already excludes `/`, but the containment
+        check is what survives a refactor of the router."""
+        for attack in ("/static/..%2f..%2fops.db", "/static/%2e%2e%2fdb.py",
+                       "/static/....//db.py"):
+            self.assertEqual(self.raw(attack)[0], 404, attack)
+
+    def test_source_files_are_not_served(self):
+        """Only known asset extensions. A .py under static/ would otherwise
+        be readable by anyone who can reach the login page."""
+        for path in ("/static/main.py", "/static/db.py", "/static/ops.db"):
+            self.assertEqual(self.raw(path)[0], 404, path)
+
+    def test_index_is_public_but_the_api_is_not(self):
+        """The shell loads for an anonymous browser; main.js then calls
+        /api/me, gets 401 and sends them to /login."""
+        self.assertEqual(self.raw("/")[0], 200)
+        self.assertEqual(self.raw("/api/me")[0], 401)
+
+
 class TestStp0ExitCriteria(Stp0Case):
     def test_healthz_is_200_after_boot(self):
         status, body = self.request("GET", "/healthz")
@@ -364,6 +412,19 @@ class TestStp0ExitCriteria(Stp0Case):
                          VALUES (2,'Theirs','JN-2','Active',0)""")
         _, body = self.request("GET", "/api/projects", self.session_for(user))
         self.assertEqual([p["name"] for p in body["projects"]], ["Mine"])
+
+    def test_projects_payload_carries_the_flag_the_screen_renders(self):
+        """projects.js reads needs_resolution to mark flagged rows. It comes
+        from `project`, not the view, so a join is doing the work -- worth a
+        test, because dropping it degrades silently to 'nothing is flagged'."""
+        user = auth.sign_in(self.db, {"sub": "s1", "email": "r@x", "name": "R"})
+        self.db.grant_role(user["id"], 1, "viewer", user["id"])
+        with self.db._tx() as c:
+            c.execute("""INSERT INTO project (entity_id,name,job_code,status,
+                             needs_resolution,created_ts)
+                         VALUES (1,'Flagged','TBA','Active',1,0)""")
+        _, body = self.request("GET", "/api/projects", self.session_for(user))
+        self.assertEqual(body["projects"][0]["needs_resolution"], 1)
 
     def test_forged_cookie_is_refused(self):
         forged = auth.mint_session(b"z" * 32, 1, 1)

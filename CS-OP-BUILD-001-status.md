@@ -1,6 +1,6 @@
 # CS-OP-BUILD-001 — Build status
 
-- **As at:** 24 August 2026 (evening)
+- **As at:** 24 August 2026 (end of day)
 - **Repo:** `C:\Dev\operations` → `git@github-roberts:CommsecurityAU/operations.git`
 - **Spec:** CS-OP-ARCH-002 (locked; changes require an ADR in §16)
 - **Plan:** CS-OP-STP-001 (delivery phases; supersedes ARCH-001 §11)
@@ -24,10 +24,13 @@
 | `tools/restore.py`, `tools/offbox_sync.sh` | Done — rehearsed 21 Aug, 0.03 s |
 | `ops/static/` | Done — register screen, editor, tokens, datatable, guardrails |
 | `ops/modules/projects.py` | Done — CRUD, validation, client find-or-create |
-| `ops/modules/worklist.py` | **Built, NOT yet reviewed** — see below |
+| `ops/modules/worklist.py` | Done — four actions, cascade, mandatory reasons |
+| `ops/money.py` | Done — the one rounding function (ADR-15) |
+| `tools/drift_check.py` | Done — workbook vs platform (ADR-27) |
+| `tools/job_number_range.py` | Done — reserve a block (ADR-29) |
 | `tools/dev_session.py`, `dev.ps1` | Done — Windows dev loop |
-| `tests/` | **319 tests**, ~6 s Linux, ~11 s Windows |
-| Worklist review, then Project List tab read-only | **Next** |
+| `tests/` | **382 tests**, ~7 s Linux, ~13 s Windows |
+| Deploy to the internal VM | **Next** |
 | `ops/modules/`, `ops/render.py` | Not started |
 
 Measured against the §14 budgets: **image 47 MB** (limit 75), **suite ~6 s**
@@ -76,27 +79,34 @@ one-to-many. Leave alone: `P-3655`, `P-3707`, `JN-CommS`. Resolution gates
 
 ---
 
-## The worklist is built but unreviewed
+## What changed today
 
-`ops/modules/worklist.py`, `ops/static/worklist.js`, `db.resolve_issue` and
-`tests/test_worklist.py` exist, are wired into `MODULES`, and pass. **They
-have never been opened in a browser and were not part of the CRUD commit.**
+**Worklist** reviewed and working against the real 8 rows. Four actions
+rather than one Resolve button, a mandatory reason for the judgement calls,
+and reissuing one side of a shared code auto-closes the sibling. One real
+bug found by running it: reissuing a class C demanded a typed reason, which
+blocked the most natural response to a shared code.
 
-That gap nearly cost a rebuild: the code was invisible from the outside, so
-a second implementation of the same thing was started before the existing
-one was found. Undelivered work is worse than unwritten work, because it
-looks like nothing at all. It is now in the delivery tree.
+**Project CRUD** with client find-or-create. A typed near-miss folds into
+the existing record on a normalised key and the user is told, because
+`MSquared` / `M Squared` / `M-Squared` as three rows splits the by-client
+rollup and is painful to unpick once invoices reference all three.
 
-What it does, for review: four actions rather than one Resolve button —
-`issue` (next number from the sequence), `assign` (a code the customer or a
-predecessor gave us), `keep` (a legitimately shared code), `dismiss` (not
-project work). A reason is mandatory for `keep` and `dismiss`, since both
-leave the register looking wrong to the next reader and get re-raised in six
-months otherwise. Reissuing one side of a shared code auto-closes the
-sibling issue, because "this code covers two projects" stops being true the
-moment it does not.
+**`ops/money.py`** — the single rounding function ADR-15 has required since
+the review. The pinned FY27 totals are identical under every rounding mode
+(nothing in STP-1 rounds), but the check found the importer TRUNCATING
+sub-cent values. Harmless on this register, consistently downward on the
+office-expense grids and on Xero.
 
-Still to check: it in a browser, against the 8 real flagged rows.
+**Drift detection (ADR-27)** replaces the read-only-tab rule for the Project
+List. It found 16 real differences on its first run, including two projects
+carrying different job numbers on each side.
+
+**Job numbers (ADR-28, ADR-29).** That finding changed a decision: the
+platform no longer allocates. iTrade still issues, so a number allocated
+here could collide with one issued there tomorrow, surfacing only in Xero.
+Creation records the code we were given or records `TBA`; allocation
+requires a reserved block and refuses until one is agreed.
 
 ---
 
@@ -110,22 +120,26 @@ Still to check: it in a browser, against the 8 real flagged rows.
    deliberately excludes `secrets/`, so if that value exists only on the
    `/data` volume, a volume loss is unrecoverable without re-registering
    the OIDC client.
-1. **Register the OIDC client.** Cloud project inside the Workspace org,
+1. **Agree a job-number block with whoever runs iTrade**, then
+   `py tools\job_number_range.py --db data\ops.db --from 9000 --to 9999
+   --note "agreed with <name>, <date>"`. Until then allocation refuses,
+   which is the correct default (ADR-29).
+2. **Register the OIDC client.** Cloud project inside the Workspace org,
    consent screen **Internal**, redirect URIs
    `https://ops.commsecurity.com.au/auth/callback` and
    `http://localhost:5173/auth/callback`. **The only thing between here and
    STP-0's exit criteria.**
-2. **Make the Project List tab read-only when STP-1 closes.** The control
-   against a shadow system, described in the plan as not optional, is
-   currently not running on any tab.
-3. **Tag `v0.1.0`.** Until a release tag exists the `n1` job no-ops with
+3. **Run `drift_check.py` after any session of workbook edits.** Sixteen
+   differences are outstanding from the 24 Aug run: twelve project leads
+   filled in on the sheet since import, two projects added there, and two
+   job codes to correct in the platform.
+4. **Tag `v0.1.0`.** Until a release tag exists the `n1` job no-ops with
    "no release tag yet", so the next migration gets no N-1 check — which is
    exactly when one is worth having.
-4. **Confirm the corporate tax rate with the accountant.** 25% (2500 bp) is
+5. **Confirm the corporate tax rate with the accountant.** 25% (2500 bp) is
    recorded as an estimate; the 25%/30% split in the source may be a real
    per-entity difference.
-5. **Before STP-1:** recompute the three pinned FY27 totals under both
-   rounding modes and record any divergence (ADR-15).
+
 6. **Minor, source data:** 50 Queens Rd shows *Live, 50%* on the Project tab
    and *DLP* on the register. One is stale.
 
@@ -182,6 +196,22 @@ Still to check: it in a browser, against the 8 real flagged rows.
   CI, `python3` is correct — don't change it there.
 - PowerShell here-strings can drop a leading dot: `.dockerignore` saved as
   `dockerignore` and silently sent the whole repo as build context.
+- A downloaded `.ps1` carries the Mark of the Web and is blocked even under
+  RemoteSigned, EVERY time it is re-downloaded. `Unblock-File .\dev.ps1`.
+- Tools do NOT migrate; the app does, at boot. So any tool run against a
+  stale database must SAY the database is behind rather than failing on a
+  missing column.
+
+**Checks that were wrong about themselves**
+
+- Naive string search over source produced three false failures: `innerHTML`
+  in the comment banning innerHTML, `round()` in the docstring explaining
+  why round() is not used, and `INSERT` matching `sys.path.insert` after
+  uppercasing. All three are now `ast`-based. **Parse code; do not read it
+  as prose.**
+- Undelivered work is worse than unwritten work, because it looks like
+  nothing at all. A finished worklist implementation sat in the working copy
+  for a day and a second one was started before it was found.
 
 **Windows dev-loop traps** (all cost real time; all now have a guard)
 
@@ -204,10 +234,33 @@ Still to check: it in a browser, against the 8 real flagged rows.
 
 ## Resume point
 
-`ops/static/` — `index.html`, `tokens.css`, `base.css`, `app.js` exporting
-`h` / `api` / `fmt`, and `datatable.js`. Plus `tests/js_guardrails.py`:
-no `innerHTML` anywhere in `static/` (including inside `h()`), `fetch` only
-inside `api()`, no CDN imports, under 50 KB per page.
+**Deploy to the internal VM.** Everything below has been running only on one
+laptop, and STP-001's standing rule is that a phase ships and is *used in
+anger* before the next begins. On that test neither STP-0 nor STP-1 has
+closed, because nobody outside this machine has used either.
 
-This turns `/api/projects` into the project register screen — the first
-thing anyone other than Richard will actually look at.
+Deploying is also what surfaces the things a laptop cannot: the fleet
+manager's health gate against a real `/healthz`, TLS with the internal CA
+certificate, `offbox_sync.sh` on a cron, and the first restore rehearsal
+against something other than a container here. Better before STP-2 builds
+invoicing on top than after.
+
+The build order after that is STP-2: migration `003`, `customer_po` and
+`claim_line`, the 29 synthetic opening rows, and orders in hand becoming
+`sum(customer_po) − sum(claims up to X)` with no financial year in the
+formula.
+
+---
+
+## Where to pick up
+
+```powershell
+cd C:\Dev\operations
+.\dev.ps1                 # serve on 5173
+.\dev.ps1 -Session        # cookie, if the last one expired
+.\dev.ps1 -Stale          # is the running server current?
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 382
+```
+
+Code fingerprint at end of day: `4bc3a2b24757`. Migrations applied: `001`,
+`002`.

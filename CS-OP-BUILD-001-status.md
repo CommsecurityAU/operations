@@ -1,6 +1,6 @@
 # CS-OP-BUILD-001 — Build status
 
-- **As at:** 24 August 2026
+- **As at:** 24 August 2026 (evening)
 - **Repo:** `C:\Dev\operations` → `git@github-roberts:CommsecurityAU/operations.git`
 - **Spec:** CS-OP-ARCH-002 (locked; changes require an ADR in §16)
 - **Plan:** CS-OP-STP-001 (delivery phases; supersedes ARCH-001 §11)
@@ -22,14 +22,17 @@
 | `tools/import_register.py` | Done — validates and imports the FY27 register, one-shot |
 | `Dockerfile`, `Makefile`, `.github/workflows/ci.yml` | Done — full pipeline green |
 | `tools/restore.py`, `tools/offbox_sync.sh` | Done — rehearsed 21 Aug, 0.03 s |
-| `ops/static/` | Done — register screen, tokens, datatable, guardrails |
+| `ops/static/` | Done — register screen, editor, tokens, datatable, guardrails |
+| `ops/modules/projects.py` | Done — CRUD, validation, client find-or-create |
+| `ops/modules/worklist.py` | **Built, NOT yet reviewed** — see below |
 | `tools/dev_session.py`, `dev.ps1` | Done — Windows dev loop |
-| `tests/` | **247 tests**, ~4 s Linux, ~6 s Windows |
-| Project CRUD, job-number allocator, worklist screen | **Next** |
+| `tests/` | **319 tests**, ~6 s Linux, ~11 s Windows |
+| Worklist review, then Project List tab read-only | **Next** |
 | `ops/modules/`, `ops/render.py` | Not started |
 
-Measured against the §14 budgets: **image 47 MB** (limit 75), **suite ~4 s**
-(limit 10), **pyright --strict 0 errors**, **0 pip deps**, **0 npm**.
+Measured against the §14 budgets: **image 47 MB** (limit 75), **suite ~6 s**
+(limit 10; ~11 s on Windows, where temp-file work is dearer — CI measures on
+Linux, but the local run is worth watching), **pyright --strict 0 errors**, **0 pip deps**, **0 npm**.
 
 ```
 py -W error::ResourceWarning -m unittest discover -s tests     # Windows
@@ -70,6 +73,30 @@ sourcing opening balances from it would have understated them by
 per site, two projects by work type, which is why `job_code_alias` is
 one-to-many. Leave alone: `P-3655`, `P-3707`, `JN-CommS`. Resolution gates
 **STP-5**, not STP-1.
+
+---
+
+## The worklist is built but unreviewed
+
+`ops/modules/worklist.py`, `ops/static/worklist.js`, `db.resolve_issue` and
+`tests/test_worklist.py` exist, are wired into `MODULES`, and pass. **They
+have never been opened in a browser and were not part of the CRUD commit.**
+
+That gap nearly cost a rebuild: the code was invisible from the outside, so
+a second implementation of the same thing was started before the existing
+one was found. Undelivered work is worse than unwritten work, because it
+looks like nothing at all. It is now in the delivery tree.
+
+What it does, for review: four actions rather than one Resolve button —
+`issue` (next number from the sequence), `assign` (a code the customer or a
+predecessor gave us), `keep` (a legitimately shared code), `dismiss` (not
+project work). A reason is mandatory for `keep` and `dismiss`, since both
+leave the register looking wrong to the next reader and get re-raised in six
+months otherwise. Reissuing one side of a shared code auto-closes the
+sibling issue, because "this code covers two projects" stops being true the
+moment it does not.
+
+Still to check: it in a browser, against the 8 real flagged rows.
 
 ---
 

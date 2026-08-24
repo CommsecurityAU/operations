@@ -1,6 +1,6 @@
 # CS-OP-STP-001 — Delivery plan
 
-- **As at:** 21 August 2026
+- **As at:** 24 August 2026
 - **Status:** Live. **Supersedes CS-OP-ARCH-001 §11 in full.**
 - **Depends on:** CS-OP-ARCH-002 (stack, budgets, ADR-08…26)
 - **Companions:** CS-OP-BUILD-001 (build status), CS-OP-RUN-001 (restore runbook)
@@ -56,7 +56,7 @@ does not.
 | STP | State |
 |---|---|
 | **STP-0** Foundation | Code complete, CI green, image published. **One exit criterion unmet: OIDC registration.** |
-| **STP-1** Project register | Schema, importer and the register screen done. CRUD, job-number allocator and worklist screen outstanding. |
+| **STP-1** Project register | Schema, importer, register screen and CRUD done. Job numbers now issued by the platform (`JN-6889` onward). Worklist screen built but unreviewed. Read-only tab outstanding. |
 | STP-2 … STP-6 | Not started |
 
 ---
@@ -135,18 +135,26 @@ Every ambiguous code is **visible and owned**, not silently guessed.
   (`h` / `api` / `fmt`), `datatable.js`, plus the guardrail suite — **done**
 - Project register screen over `/api/projects`, with type/client/status
   multi-select filters and totals that follow the filters — **done**
-- Project CRUD; a project cannot exist without client, type and lead
-- Job number allocator endpoint on `job_number_sequence` (next: `JN-6889`)
-- Worklist screen over `job_code_issue`, with resolution writing
-  `job_code_alias` and an `audit_log` row
+- Project CRUD; a project cannot exist without client, type and lead —
+  **done**. Clients may be picked or typed; a typed near-miss folds into the
+  existing record on a normalised key and the user is told, because
+  `MSquared` / `M Squared` / `M-Squared` as three rows splits the by-client
+  rollup and is painful to unpick once invoices reference all three
+- Job numbers allocated **at commit, never on opening a form** — a number
+  handed out early leaves a gap every time someone changes their mind, and
+  gaps in the series get queried a year later. **Done**: `JN-6889` and
+  `JN-6890` issued by the platform
+- Worklist screen over `job_code_issue`, resolution writing `job_code_alias`
+  and an `audit_log` row — **built, not yet reviewed**
 
 **Exit criteria.**
 
-- 59 projects visible in the platform and reconciling to $3,520,041.73
+- [x] 59 projects visible in the platform and reconciling to $3,520,041.73
   orders in hand
-- The next new job number is issued by the platform, not iTrade
+- [x] The next new job number is issued by the platform, not iTrade
 - Every one of the 8 worklist rows is visible with an owner
-- **Project List tab read-only**
+- **Project List tab read-only** — the control against a shadow system, and
+  still not running on any tab
 
 **Changed from ARCH-001.** Its exit criterion was "zero unresolved job
 codes". ADR-23 replaced that with import-flagged: resolution gates **STP-5**,

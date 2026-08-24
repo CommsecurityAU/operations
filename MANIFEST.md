@@ -1,6 +1,6 @@
 # MANIFEST — where every file goes
 
-**As at:** 24 August 2026 · **282 tests** · pyright --strict clean
+**As at:** 24 August 2026 · **319 tests** · pyright --strict clean
 
 The `repo/` folder mirrors `C:\Dev\operations` exactly. Copy it over the top
 and the paths land correctly — no guessing which `main` is which.
@@ -45,7 +45,8 @@ C:\Dev\operations\
 │   │   └── 001_foundation.sql         STP-0 + STP-1 schema
 │   ├── modules/                       §6 FEATURE MODULES
 │   │   ├── __init__.py
-│   │   └── projects.py                register CRUD, validation, routes
+│   │   ├── projects.py                register CRUD, validation, routes
+│   │   └── worklist.py                job-code resolution (UNREVIEWED)
 │   └── static/                        THE BROWSER CODE
 │       ├── index.html                 shell
 │       ├── tokens.css                 the ONLY colour/type/spacing literals
@@ -73,6 +74,7 @@ C:\Dev\operations\
     ├── test_js_guardrails.py          frontend rules
     ├── test_main.py                   boot, static, STP-0 exit criteria
     ├── test_projects.py               CRUD, validation, delete guard
+    ├── test_worklist.py               resolution actions, cascade
     ├── test_restore.py                pre-flight and restore ordering
     └── test_secrets.py                store, CLI, no-fallback
 ```
@@ -86,11 +88,11 @@ secrets, TLS. `.gitignore` covers it.
 
 ```powershell
 cd C:\Dev\operations
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 282 OK
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 319 OK
 .\dev.ps1 -Stale                                             # running == disk?
 ```
 
-If the count is below 282, a test file did not land. If `-Stale` says STALE,
+If the count is below 319, a test file did not land. If `-Stale` says STALE,
 restart the server — Python loads a module once, so a running process can be
 several edits behind the working tree while every test passes.
 

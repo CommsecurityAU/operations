@@ -25,6 +25,7 @@ import time
 
 from ops import auth, backup, config as config_mod
 from ops.modules import projects as projects_module
+from ops.modules import worklist as worklist_module
 from ops.db import Db
 from ops.http_util import HttpError, Router, make_server
 from ops.secrets import SecretError, build_provider, resolve_config
@@ -40,7 +41,7 @@ MIME = {
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
 }
-MODULES = [projects_module]   # §6. Registered here, explicitly.
+MODULES = [projects_module, worklist_module]   # §6. Explicit, in order.
 CERT_WARN_DAYS = 30
 
 

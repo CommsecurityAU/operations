@@ -422,6 +422,33 @@ button.danger { border-color: var(--alarm); color: var(--alarm); }
 }
 .notice[hidden] { display: none; }
 
+/* ---------------------------------------------------------- worklist */
+.badge {
+  display: inline-block;
+  margin-left: var(--u);
+  padding: 0 var(--u);
+  background: var(--warn);
+  color: var(--s-0);
+  font-family: var(--font-data);
+  font-size: var(--fs-micro);
+}
+.badge[hidden] { display: none; }
+
+.worklist-group { margin-top: var(--u6); }
+.worklist-group h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: var(--track-display);
+}
+.group-help {
+  margin: 0 0 var(--u3);
+  max-width: 70ch;
+  font-size: var(--fs-small);
+  color: var(--t-1);
+}
+
 .page-head .spacer { margin-left: auto; }
 
 @media (max-width: 560px) {

@@ -449,6 +449,131 @@ class Db:
                 "SELECT * FROM project WHERE id = ?", (project_id,)).fetchone()
             return {"project": dict(row), "changed": sorted(applied)}
 
+    # ---------------------------------------------------------- worklist
+    # Codes that are not codes. Aliasing one would map five projects to
+    # "TBA", which makes an alias lookup useless -- a placeholder belongs in
+    # the audit trail, not the lookup table.
+    PLACEHOLDER_CODES = frozenset(
+        {"TBA", "NA", "N/A", "VARIOUS", "TBC", "TBD", "-", "", "(BLANK)"})
+
+    def resolve_issue(self, issue_id, action, actor_id, job_code=None,
+                      reason=None):
+        """Close one job-code issue. Returns a dict describing what changed.
+
+        The four actions are not variations on one thing:
+          issue    -- allocate the next number from the sequence
+          assign   -- set a specific code the customer or a predecessor gave us
+          keep     -- accept a legitimately shared code (class C)
+          dismiss  -- this is not project work and needs no number
+
+        `reason` is mandatory for keep and dismiss because both leave the
+        register looking wrong to the next reader: an unnumbered project or
+        two projects on one code. Without the reason recorded, someone
+        re-raises it in six months.
+        """
+        now = int(time.time())
+        with self._tx() as c:
+            issue = c.execute(
+                "SELECT * FROM job_code_issue WHERE id = ?", (issue_id,)).fetchone()
+            if issue is None or issue["status"] != "open":
+                return None
+            project_id = issue["project_id"]
+            old_code = c.execute(
+                "SELECT job_code FROM project WHERE id = ?",
+                (project_id,)).fetchone()["job_code"] if project_id else None
+
+            new_code = None
+            if action == "issue":
+                new_code = self._issue_job_number(c)
+            elif action == "assign":
+                new_code = job_code
+
+            if new_code and project_id:
+                c.execute("UPDATE project SET job_code = ? WHERE id = ?",
+                          (new_code, project_id))
+                # The legacy code is kept as an alias ONLY when it was a real
+                # code. A placeholder like TBA carries no history, and five
+                # projects all aliased from "TBA" would be worse than nothing.
+                if old_code and old_code.upper() not in self.PLACEHOLDER_CODES:
+                    c.execute(
+                        """INSERT OR IGNORE INTO job_code_alias
+                           (legacy_code, project_id, note, created_ts)
+                           VALUES (?,?,?,?)""",
+                        (old_code, project_id, "reissued at worklist resolution", now))
+
+            # Migration 001 requires a reason on any resolved class C row.
+            # For `issue` and `assign` the reason IS the action -- the code
+            # stops being shared -- so record that rather than making someone
+            # type "because I am giving it a new number".
+            recorded = reason or (
+                f"reissued as {new_code}" if new_code else None)
+            c.execute(
+                """UPDATE job_code_issue
+                   SET status = ?, resolved_by = ?, resolved_at = ?, reason = ?
+                   WHERE id = ?""",
+                ("dismissed" if action == "dismiss" else "resolved",
+                 actor_id, now, recorded, issue_id))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'worklist_resolve','job_code_issue',?,?)""",
+                (now, actor_id, str(issue_id),
+                 f"{action}: {old_code!r} -> {new_code or old_code!r}"
+                 + (f" ({reason})" if reason else "")))
+
+            cascaded = self._close_unshared_class_c(c, actor_id, now)
+            self._refresh_needs_resolution(c, project_id)
+            return {"issue_id": issue_id, "action": action,
+                    "job_code": new_code or old_code,
+                    "cascaded": cascaded}
+
+    @staticmethod
+    def _close_unshared_class_c(c, actor_id, now):
+        """A class C issue says "this code covers two projects". Once one of
+        them is reissued the statement is false, so the sibling issue is
+        closed automatically rather than sitting open claiming something that
+        is no longer true. Recorded, not silent.
+        """
+        closed = []
+        rows = c.execute(
+            """SELECT i.id, i.raw_code FROM job_code_issue i
+               WHERE i.status = 'open' AND i.class = 'C'""").fetchall()
+        for row in rows:
+            n = c.execute("SELECT COUNT(*) FROM project WHERE job_code = ?",
+                          (row["raw_code"],)).fetchone()[0]
+            if n > 1:
+                continue
+            c.execute(
+                """UPDATE job_code_issue SET status = 'resolved',
+                       resolved_by = ?, resolved_at = ?, reason = ?
+                   WHERE id = ?""",
+                (actor_id, now, "code is no longer shared", row["id"]))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'worklist_resolve','job_code_issue',?,?)""",
+                (now, actor_id, str(row["id"]),
+                 f"auto-closed: {row['raw_code']} is no longer shared"))
+            closed.append(row["id"])
+        return closed
+
+    @staticmethod
+    def _refresh_needs_resolution(c, project_id):
+        """The flag on a project mirrors whether it still has open issues.
+        Two places holding the same fact is how a register shows a flag with
+        nothing behind it."""
+        if project_id is None:
+            return
+        for pid in {project_id} | {
+                r[0] for r in c.execute(
+                    "SELECT DISTINCT project_id FROM job_code_issue "
+                    "WHERE project_id IS NOT NULL").fetchall()}:
+            open_count = c.execute(
+                "SELECT COUNT(*) FROM job_code_issue "
+                "WHERE project_id = ? AND status = 'open'", (pid,)).fetchone()[0]
+            c.execute("UPDATE project SET needs_resolution = ? WHERE id = ?",
+                      (1 if open_count else 0, pid))
+
     def project_is_deletable(self, project_id):
         """A project carrying money is history, not a record you remove.
 

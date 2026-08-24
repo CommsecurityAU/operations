@@ -48,10 +48,12 @@ def main(argv=None):
     db = Db(db_path, MIGRATIONS)
     try:
         user = db.upsert_user(args.sub, args.email, args.name)
-        # Both roles, deliberately: no role implies another (§9), so an
-        # admin who is not also a viewer cannot read the project list -- as
-        # the restore rehearsal discovered the hard way.
-        for role in ("viewer", "admin"):
+        # EVERY role, deliberately. No role implies another (§9), so a
+        # grant of admin alone cannot read the register and cannot create a
+        # project -- which is correct behaviour and useless in a dev tool.
+        # Granting a subset here just reproduces the confusion of a missing
+        # button with no visible cause.
+        for role in ("viewer", "operations", "approver", "admin"):
             db.grant_role(user["id"], 1, role, user["id"])
         key = auth.load_or_create_key(
             os.path.join(args.data, "secrets", "session.key"))
@@ -63,6 +65,7 @@ def main(argv=None):
     print(f"""
   user     {args.name} <{args.email}>
   roles    {roles} on entity 1
+           (all four: a missing role shows up as a missing button)
 
   In the browser at http://localhost:{args.port}, open DevTools (F12) and run:
 

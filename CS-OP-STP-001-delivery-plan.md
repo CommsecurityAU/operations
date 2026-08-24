@@ -55,8 +55,8 @@ does not.
 
 | STP | State |
 |---|---|
-| **STP-0** Foundation | Code complete, CI green, image published. **Two exit criteria unmet.** |
-| **STP-1** Project register | Schema and importer done. UI, CRUD and allocator outstanding. |
+| **STP-0** Foundation | Code complete, CI green, image published. **One exit criterion unmet: OIDC registration.** |
+| **STP-1** Project register | Schema, importer and the register screen done. CRUD, job-number allocator and worklist screen outstanding. |
 | STP-2 … STP-6 | Not started |
 
 ---
@@ -132,8 +132,9 @@ Every ambiguous code is **visible and owned**, not silently guessed.
 - Importer emitting a worklist rather than guessing — **done**, verified
   against source, one bad row aborts the whole import
 - `ops/static/` — `index.html`, `tokens.css`, `base.css`, `app.js`
-  (`h` / `api` / `fmt`), `datatable.js`, plus `tests/js_guardrails.py`
-- Project register screen over `/api/projects`
+  (`h` / `api` / `fmt`), `datatable.js`, plus the guardrail suite — **done**
+- Project register screen over `/api/projects`, with type/client/status
+  multi-select filters and totals that follow the filters — **done**
 - Project CRUD; a project cannot exist without client, type and lead
 - Job number allocator endpoint on `job_number_sequence` (next: `JN-6889`)
 - Worklist screen over `job_code_issue`, with resolution writing
@@ -325,8 +326,8 @@ re-keying invoices.
 ## Cross-cutting — not phases, but not optional
 
 **Restore rehearsal, monthly.** From the **off-box** copy, not
-`/data/backups/`. Record the elapsed time against the §14 60 s budget. The
-first one is an outstanding STP-0 exit criterion.
+`/data/backups/`. Record the elapsed time against the §14 60 s budget. First
+one performed 21 Aug 2026 (0.03 s); next due 21 Sep.
 
 **Tag a release before each migration.** Until a `v*` tag exists the CI
 `n1` job no-ops, so the first schema change after a deploy gets no N-1

@@ -71,8 +71,11 @@ class Router:
         regex = re.compile("^" + re.sub(r"\{(\w+)\}", r"(?P<\1>[^/]+)", pattern) + "$")
         self._routes.append((method.upper(), regex, fn, role))
 
-    def route(self, pattern, role, method="GET"):
-        def deco(fn):
+    def route(self, pattern: str, role: str, method: str = "GET"):
+        """Decorator form of add(). Annotated so pyright can see through it
+        -- an unannotated decorator silently erases the type of every route
+        handler it wraps, which is most of the codebase."""
+        def deco(fn: "Callable[..., Any]") -> "Callable[..., Any]":
             self.add(method, pattern, fn, role)
             return fn
         return deco

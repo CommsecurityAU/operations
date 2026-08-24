@@ -159,7 +159,22 @@ export function datatable(model) {
 
     while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
     for (const row of slice) {
-      tbody.appendChild(h("tr", { class: model.rowClass ? model.rowClass(row) : null },
+      const attrs = { class: model.rowClass ? model.rowClass(row) : null };
+      if (model.onRowClick) {
+        attrs.class = [attrs.class, "clickable"].filter(Boolean).join(" ");
+        attrs.tabindex = "0";
+        attrs.role = "button";
+        attrs.onclick = () => model.onRowClick(row);
+        // Rows are reachable and operable from the keyboard, or the whole
+        // edit path is mouse-only.
+        attrs.onkeydown = (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            model.onRowClick(row);
+          }
+        };
+      }
+      tbody.appendChild(h("tr", attrs,
         model.columns.map((col) => {
           const raw = row[col.key];
           const text = col.fmt ? col.fmt(raw, row) : (raw ?? "");

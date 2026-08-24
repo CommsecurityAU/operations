@@ -65,6 +65,9 @@
   --u8: calc(var(--u) * 8);
   --h-control: 26px;
 
+  /* ---- overlay ---- */
+  --backdrop: rgb(0 0 0 / 0.6);
+
   /* ---- flat, square, hairline ---- */
   --radius: 0;
   --border: 1px solid var(--line);

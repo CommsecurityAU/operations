@@ -322,6 +322,112 @@ tbody tr.flagged td:first-child {
 }
 .tag.warn { color: var(--warn); border-color: var(--accent-dim); }
 
+/* -------------------------------------------------------- editable rows */
+tbody tr.clickable { cursor: pointer; }
+tbody tr.clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+td.link { color: var(--t-0); }
+tbody tr.clickable:hover td.link { color: var(--accent); }
+
+/* ------------------------------------------------------------ the sheet */
+dialog.sheet {
+  width: min(680px, calc(100vw - var(--u8)));
+  padding: 0;
+  background: var(--s-1);
+  color: var(--t-0);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+dialog.sheet::backdrop { background: var(--backdrop); }
+
+.sheet-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--u3);
+  padding: var(--u3) var(--u4);
+  background: var(--s-2);
+  border-bottom: 1px solid var(--line-strong);
+}
+.sheet-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: var(--track-display);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--u3);
+  padding: var(--u4);
+}
+.field { display: flex; flex-direction: column; gap: var(--u); }
+.field:first-child, .field:last-child { grid-column: 1 / -1; }
+.field-label {
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--t-1);
+}
+.field-hint { font-size: var(--fs-micro); color: var(--t-2); }
+.field textarea {
+  padding: var(--u2);
+  background: var(--s-1);
+  color: var(--t-0);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: var(--fs-small);
+  resize: vertical;
+}
+/* The error sits under its own field and takes the alarm colour: this is
+ * the one place on the screen where something IS wrong. */
+.field-error { font-size: var(--fs-micro); color: var(--alarm); }
+.field.has-error input,
+.field.has-error select,
+.field.has-error textarea { border-color: var(--alarm); }
+
+.form-error {
+  margin: 0 var(--u4) var(--u3);
+  padding: var(--u2) var(--u3);
+  border: 1px solid var(--alarm);
+  color: var(--alarm);
+  font-size: var(--fs-small);
+}
+.form-error[hidden] { display: none; }
+
+.sheet-foot {
+  display: flex;
+  gap: var(--u2);
+  align-items: center;
+  padding: var(--u3) var(--u4);
+  background: var(--s-2);
+  border-top: 1px solid var(--line);
+}
+button.danger { border-color: var(--alarm); color: var(--alarm); }
+
+.state-action { text-align: center; padding-bottom: var(--u8); }
+
+/* Information, not an alarm: something happened that differs from what was
+ * typed. Amber, because it wants reading once, not fixing. */
+.notice {
+  margin-bottom: var(--u4);
+  padding: var(--u2) var(--u3);
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+  font-size: var(--fs-small);
+}
+.notice[hidden] { display: none; }
+
+.page-head .spacer { margin-left: auto; }
+
+@media (max-width: 560px) {
+  .form-grid { grid-template-columns: 1fr; }
+}
+
 /* -------------------------------------------------- states, not moods */
 .state {
   padding: var(--u8) var(--u4);

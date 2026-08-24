@@ -165,7 +165,8 @@ A convention, not a framework. No dynamic discovery, no hooks, no registries.
   - Flat, square, hairline: 0 radius, 1 px borders, no shadows. Control height and spacing on a single scale variable.
 - `datatable.js` — one generic component seeding every read-only list view. Contract:
   - input: a model `{columns:[{key,label,align,fmt}], rows, filters?, searchKeys?, pageSize?}`
-  - behaviour: client-side column sort (click header, toggle asc/desc), per-column select filters, substring search, paging with row-count footer
+  - behaviour: client-side column sort (click header, toggle asc/desc), **multi-select** per-column filters, substring search, paging with row-count footer
+  - a `onVisible(rows)` callback reports the FILTERED set (not the page) so page-level totals follow the filters. A total that silently describes a subset of what its label claims is how a dashboard misleads, so the page must also say when it is filtered
   - controls build once and keep DOM identity across re-renders (focus/open state survives); rows re-render from the model.
 - Interactive screens (invoicing grid): server-rendered `<table>`; click cell → input; Enter/Tab commits `PATCH /api/…`; server responds with recomputed row/totals JSON; JS patches the DOM. **No optimistic UI — the server's response is the truth painted back.**
 - Server-rendered report/dashboard pages come from `render.py` (a query + a loop). **Escaping is the helper's job, not the caller's:** `page()`, `table()`, `money()` and every value-taking helper HTML-escape by default; emitting markup requires an explicit `raw(...)` wrapper, which is grep-able and reviewable; `esc()` is exported for the rare hand-rolled fragment. f-strings *are* the template engine here, so these helpers are the only thing between a supplier name and stored XSS — the server half gets the same rigour as the JS half, not less. Drill-through is plain `<a href>`.
@@ -174,6 +175,7 @@ A convention, not a framework. No dynamic discovery, no hooks, no registries.
   - no external URL / CDN import anywhere in `static/`
   - `fetch(` appears only inside `api()` in `app.js`
   - no `innerHTML` assignment anywhere in `static/`
+  - **`ops/static/` holds assets only.** Every file in it is reachable at `/static/<name>`; a source file there is always a mistake. Enforced by existence, not just by the MIME allowlist that refuses to serve it
   - in `render.py` and any module emitting HTML: no f-string interpolation inside a returned markup string unless the expression is `esc(…)`, `raw(…)`, or a `render.py` helper
 
 ## 8. OIDC (login)

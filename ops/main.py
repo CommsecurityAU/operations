@@ -24,6 +24,7 @@ import sys
 import time
 
 from ops import auth, backup, config as config_mod
+from ops.modules import projects as projects_module
 from ops.db import Db
 from ops.http_util import HttpError, Router, make_server
 from ops.secrets import SecretError, build_provider, resolve_config
@@ -39,7 +40,7 @@ MIME = {
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
 }
-MODULES = []          # §6. Registered here, explicitly. Empty at STP-0.
+MODULES = [projects_module]   # §6. Registered here, explicitly.
 CERT_WARN_DAYS = 30
 
 
@@ -244,34 +245,6 @@ def build_router(db, oidc, key, cfg):
         return 200, {"id": user["id"], "email": user["email"],
                      "display_name": user["display_name"],
                      "roles": user["roles"]}
-
-    @r.route("/api/projects", role="viewer")
-    def projects(handler, user):
-        entity_ids = sorted({r["entity_id"] for r in user["roles"]})
-        if not entity_ids:
-            return 200, {"projects": []}
-        marks = ",".join("?" * len(entity_ids))
-        # Column names come from the VIEW (project_id/project_name), not the
-        # table. SELECT names are the JSON field names are the JS property
-        # names (§5), so the aliases are the API contract.
-        # LEFT JOIN on type and client deliberately: a project whose type
-        # did not match the taxonomy is a data problem worth seeing on the
-        # screen, and an INNER JOIN would hide it by dropping the row.
-        return 200, {"projects": db.query(
-            f"""SELECT v.project_id   AS id,
-                       v.project_name AS name,
-                       v.job_code, v.status, v.purchase_order_cents,
-                       v.invoiced_prior_cents, v.orders_in_hand_cents,
-                       p.needs_resolution,
-                       p.project_lead,
-                       COALESCE(pt.code, '(untyped)') AS type,
-                       COALESCE(c.name, '(no client)') AS client
-                FROM v_project_orders_in_hand v
-                JOIN project p ON p.id = v.project_id
-                LEFT JOIN project_type pt ON pt.id = p.type_id
-                LEFT JOIN client c ON c.id = p.client_id
-                WHERE v.entity_id IN ({marks})
-                ORDER BY v.project_name""", tuple(entity_ids))}
 
     for module in MODULES:
         module.register(r, db)

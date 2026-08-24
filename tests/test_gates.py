@@ -155,6 +155,61 @@ class TestBaseImageIsPinned(unittest.TestCase):
                                 "CMD must use exec form")
 
 
+class TestStaticDirectoryHoldsAssetsOnly(unittest.TestCase):
+    """`ops/static/` is published: every file in it is reachable at
+    /static/<name>. A source file there is always a mistake, and catching it
+    should not depend on someone reading `git status` carefully -- one was
+    committed and only spotted by eye."""
+
+    ALLOWED = (".html", ".css", ".js", ".svg", ".ico", ".png", ".woff2")
+
+    def test_no_source_or_data_files_under_static(self):
+        static = os.path.join(OPS, "static")
+        offenders = []
+        for dirpath, dirnames, filenames in os.walk(static):
+            dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+            for name in filenames:
+                if not name.endswith(self.ALLOWED):
+                    offenders.append(os.path.relpath(
+                        os.path.join(dirpath, name), ROOT))
+        self.assertEqual(offenders, [],
+                         "non-asset file in the published static directory")
+
+    def test_the_server_would_refuse_to_serve_one_anyway(self):
+        """Defence in depth: even if a stray file lands, the MIME allowlist
+        in main.py is what stops it being readable over HTTP."""
+        with open(os.path.join(OPS, "main.py"), encoding="utf-8") as f:
+            body = f.read()
+        self.assertIn("if ext not in MIME:", body)
+        self.assertNotIn('".py"', body.split("MIME = {")[1].split("}")[0])
+
+
+class TestDevSessionGrantsEveryRole(unittest.TestCase):
+    """No role implies another, so a dev session missing one shows up as a
+    button that is not there, with nothing on screen explaining why. That
+    cost a round trip once already."""
+
+    def test_dev_session_grants_all_four(self):
+        with open(os.path.join(ROOT, "tools", "dev_session.py"),
+                  encoding="utf-8") as f:
+            body = f.read()
+        for role in ("viewer", "operations", "approver", "admin"):
+            self.assertIn(f'"{role}"', body, f"dev_session omits {role}")
+
+    def test_the_roles_the_ui_gates_on_are_all_grantable(self):
+        """If a screen checks a role, the dev tool has to be able to grant
+        it -- otherwise the feature is untestable locally."""
+        with open(os.path.join(ROOT, "ops", "static", "projects.js"),
+                  encoding="utf-8") as f:
+            ui = f.read()
+        with open(os.path.join(ROOT, "tools", "dev_session.py"),
+                  encoding="utf-8") as f:
+            dev = f.read()
+        for m in re.finditer(r'roles\.has\("(\w+)"\)', ui):
+            self.assertIn(f'"{m.group(1)}"', dev,
+                          f"UI gates on {m.group(1)} but dev_session cannot grant it")
+
+
 class TestDevRunnersAgree(unittest.TestCase):
     """The Makefile and dev.ps1 do the same job on two platforms. If they
     disagree about the port, one of them silently produces an OIDC redirect

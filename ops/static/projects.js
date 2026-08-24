@@ -2,6 +2,10 @@
 
 import { api, fmt, h, mount, stateMessage } from "./app.js";
 import { datatable } from "./datatable.js";
+import { projectForm } from "./projectform.js";
+
+// Survives the re-render that follows a save.
+let pending = null;
 
 // Contract and Invoiced Prior are context; Orders in Hand is the answer.
 // The hierarchy is carried by VALUE, not hue -- adding a second colour would
@@ -9,7 +13,7 @@ import { datatable } from "./datatable.js";
 const zero = (v) => (v === 0 ? "zero" : null);
 
 const COLUMNS = [
-  { key: "name", label: "Project" },
+  { key: "name", label: "Project", cls: () => "link" },
   { key: "job_code", label: "Job code", cls: () => "mono" },
   { key: "client", label: "Client", cls: () => "muted" },
   { key: "type", label: "Type", cls: () => "mono" },
@@ -33,9 +37,13 @@ function figure(label, kind) {
 
 export async function render(root) {
   mount(root, stateMessage("Loading projects", null, false));
-  let payload;
+  let payload, reference, me;
   try {
-    payload = await api("GET", "/api/projects");
+    [payload, reference, me] = await Promise.all([
+      api("GET", "/api/projects"),
+      api("GET", "/api/reference"),
+      api("GET", "/api/me"),
+    ]);
   } catch (err) {
     // The server's own wording, plus what to do about it.
     mount(root, stateMessage(
@@ -48,9 +56,34 @@ export async function render(root) {
   }
 
   const all = payload.projects;
+  const roles = new Set(me.roles.map((r) => r.role));
+  const canWrite = roles.has("operations");
+  const canDelete = roles.has("admin");
+
+  const notice = h("div", { class: "notice", hidden: true });
+  const openForm = (project) => projectForm({
+    project, reference, canDelete,
+    onSaved: (_saved, _editing, message) => {
+      pending = message;
+      render(root);
+    },
+    onDeleted: () => render(root),
+  });
+
   if (!all.length) {
-    mount(root, stateMessage("No projects yet",
-      "Import the register, or add the first project.", false));
+    if (pending) {
+    notice.textContent = pending;
+    notice.hidden = false;
+    pending = null;
+  }
+
+  mount(root, h("div", { class: "content" },
+      stateMessage("No projects yet",
+        canWrite ? "Add the first one, or import the register."
+                 : "Nothing has been added on your entities yet.", false),
+      canWrite ? h("div", { class: "state-action" },
+        h("button", { type: "button", class: "primary",
+                      onclick: () => openForm(null) }, "New project")) : null));
     return;
   }
 
@@ -81,10 +114,21 @@ export async function render(root) {
     figures.flagged.el.hidden = flagged === 0;
   }
 
+  if (pending) {
+    notice.textContent = pending;
+    notice.hidden = false;
+    pending = null;
+  }
+
   mount(root, h("div", { class: "content" },
     h("div", { class: "page-head" },
       h("h1", null, "Project register"),
-      h("span", { class: "eyebrow" }, scope)),
+      h("span", { class: "eyebrow" }, scope),
+      h("span", { class: "spacer" }),
+      canWrite ? h("button", { type: "button", class: "primary",
+                               onclick: () => openForm(null) },
+                   "New project") : null),
+    notice,
     h("div", { class: "figures" },
       figures.projects.el, figures.contract.el, figures.prior.el,
       figures.oih.el, figures.flagged.el),
@@ -95,5 +139,8 @@ export async function render(root) {
       searchKeys: ["name", "job_code", "client", "project_lead"],
       onVisible: summarise,
       rowClass: (r) => (r.needs_resolution ? "flagged" : null),
+      // Read-only users get no click affordance at all, rather than a row
+      // that opens a form they cannot save.
+      onRowClick: canWrite ? openForm : null,
     })));
 }

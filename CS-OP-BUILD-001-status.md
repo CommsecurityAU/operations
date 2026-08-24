@@ -1,6 +1,6 @@
 # CS-OP-BUILD-001 — Build status
 
-- **As at:** 21 August 2026
+- **As at:** 24 August 2026
 - **Repo:** `C:\Dev\operations` → `git@github-roberts:CommsecurityAU/operations.git`
 - **Spec:** CS-OP-ARCH-002 (locked; changes require an ADR in §16)
 - **Plan:** CS-OP-STP-001 (delivery phases; supersedes ARCH-001 §11)
@@ -22,8 +22,10 @@
 | `tools/import_register.py` | Done — validates and imports the FY27 register, one-shot |
 | `Dockerfile`, `Makefile`, `.github/workflows/ci.yml` | Done — full pipeline green |
 | `tools/restore.py`, `tools/offbox_sync.sh` | Done — rehearsed 21 Aug, 0.03 s |
-| `tests/` | **206 tests**, ~4 s Linux |
-| `ops/static/` | **Next** |
+| `ops/static/` | Done — register screen, tokens, datatable, guardrails |
+| `tools/dev_session.py`, `dev.ps1` | Done — Windows dev loop |
+| `tests/` | **247 tests**, ~4 s Linux, ~6 s Windows |
+| Project CRUD, job-number allocator, worklist screen | **Next** |
 | `ops/modules/`, `ops/render.py` | Not started |
 
 Measured against the §14 budgets: **image 47 MB** (limit 75), **suite ~4 s**
@@ -84,7 +86,7 @@ one-to-many. Leave alone: `P-3655`, `P-3707`, `JN-CommS`. Resolution gates
 1. **Register the OIDC client.** Cloud project inside the Workspace org,
    consent screen **Internal**, redirect URIs
    `https://ops.commsecurity.com.au/auth/callback` and
-   `http://localhost:8080/auth/callback`. **The only thing between here and
+   `http://localhost:5173/auth/callback`. **The only thing between here and
    STP-0's exit criteria.**
 2. **Make the Project List tab read-only when STP-1 closes.** The control
    against a shadow system, described in the plan as not optional, is
@@ -153,6 +155,23 @@ one-to-many. Leave alone: `P-3655`, `P-3707`, `JN-CommS`. Resolution gates
   CI, `python3` is correct — don't change it there.
 - PowerShell here-strings can drop a leading dot: `.dockerignore` saved as
   `dockerignore` and silently sent the whole repo as build context.
+
+**Windows dev-loop traps** (all cost real time; all now have a guard)
+
+- BEFORE debugging code when tests pass and the browser disagrees, find out
+  WHAT IS ANSWERING THE PORT. A stale Docker container held 8080 for half an
+  hour of misdiagnosis. `.\dev.ps1` now names the occupant before binding.
+- Python loads a module once, so a running server can be several edits
+  behind the working tree. `.\dev.ps1 -Stale` compares the `/healthz` code
+  fingerprint against the on-disk one. Four separate confusions came from
+  this before it existed.
+- Windows reserves port ranges for Hyper-V/WSL; a bind inside one fails with
+  `WinError 10013`, which mentions nothing about reservations. Dev port is
+  now 5173.
+- A downloaded `.ps1` carries the Mark of the Web and is blocked even under
+  `RemoteSigned`. `Unblock-File .\dev.ps1` once.
+- A read-only command must not write state: `-Stale` used to create the dev
+  secret store on the way past.
 
 ---
 

@@ -317,10 +317,171 @@ class Db:
             (user_id,))
 
     # ----------------------------------------------------------- projects
+    @staticmethod
+    def _issue_job_number(c):
+        """Allocated inside the caller's transaction, at COMMIT time.
+
+        Never on opening a form: a number handed out before the user decides
+        to save leaves a gap in the sequence every time someone changes
+        their mind, and gaps in a job-number series are the kind of thing
+        that gets queried a year later by someone reconciling to Xero.
+        """
+        n = c.execute(
+            "UPDATE job_number_sequence SET next_value = next_value + 1 "
+            "WHERE id = 1 RETURNING next_value - 1").fetchone()[0]
+        return f"JN-{n}"
+
     def next_job_number(self):
-        """Global sequence, issued inside the caller's transaction (§4)."""
         with self._tx() as c:
-            n = c.execute(
-                "UPDATE job_number_sequence SET next_value = next_value + 1 "
-                "WHERE id = 1 RETURNING next_value - 1").fetchone()[0]
-            return f"JN-{n}"
+            return self._issue_job_number(c)
+
+    @staticmethod
+    def client_key(name):
+        """Normalised match key: lowercase, alphanumerics only.
+
+        Free-text entry is how a register acquires 'MSquared', 'M Squared'
+        and 'M-Squared' as three clients that are one client -- which then
+        splits the by-client rollup and is painful to unpick once invoices
+        reference all three. Collapsing punctuation and case is aggressive,
+        and deliberately so: two genuinely different clients distinguished
+        only by a hyphen is a far rarer problem than the one it prevents.
+        """
+        return "".join(ch for ch in (name or "").lower() if ch.isalnum())
+
+    def resolve_client(self, entity_id, name, actor_id):
+        """Find or create, matching on the normalised key.
+
+        Returns (client_id, created, matched_name). `matched_name` is the
+        EXISTING spelling when a near-miss was reused, so the caller can say
+        so rather than silently correcting what the user typed.
+        """
+        name = (name or "").strip()
+        if not name:
+            return None, False, None
+        key = self.client_key(name)
+        for row in self.query(
+                "SELECT id, name FROM client WHERE entity_id = ?", (entity_id,)):
+            if self.client_key(row["name"]) == key:
+                return row["id"], False, row["name"]
+        now = int(time.time())
+        with self._tx() as c:
+            cur = c.execute(
+                "INSERT INTO client (entity_id, name) VALUES (?, ?)",
+                (entity_id, name))
+            cid = cur.lastrowid
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'client_create','client',?,?)""",
+                (now, actor_id, str(cid), name))
+        return cid, True, name
+
+    def create_project(self, fields, actor_id):
+        """Returns the created row. The job number is allocated here, in the
+        same transaction, so a failed insert cannot burn one."""
+        now = int(time.time())
+        with self._tx() as c:
+            job_code = fields.get("job_code") or self._issue_job_number(c)
+            cur = c.execute(
+                """INSERT INTO project
+                   (entity_id, name, job_code, project_no, client_id, type_id,
+                    status, project_lead, purchase_order_cents,
+                    invoiced_prior_cents, needs_resolution, notes, created_ts)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?)""",
+                (fields["entity_id"], fields["name"], job_code,
+                 fields.get("project_no"), fields["client_id"],
+                 fields["type_id"], fields["status"], fields["project_lead"],
+                 fields.get("purchase_order_cents", 0),
+                 fields.get("invoiced_prior_cents", 0),
+                 fields.get("notes"), now))
+            # lastrowid lives on the CURSOR, not the connection that _tx()
+            # yields.
+            pid = cur.lastrowid
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'project_create','project',?,?)""",
+                (now, actor_id, str(pid), f"{job_code} {fields['name']}"))
+            row = c.execute("SELECT * FROM project WHERE id = ?", (pid,)).fetchone()
+            return dict(row)
+
+    # Fields a user may change. job_code, entity_id and created_ts are not
+    # here: reassigning a job number or moving a project between legal
+    # entities is a migration, not an edit.
+    MUTABLE = ("name", "project_no", "client_id", "type_id", "status",
+               "project_lead", "purchase_order_cents", "invoiced_prior_cents",
+               "notes")
+
+    def update_project(self, project_id, changes, actor_id):
+        """Field-level patch: only the keys supplied are touched.
+
+        Two people editing different fields of one project therefore do not
+        collide at all, which is the common case. Same-field edits are
+        last-write-wins, and every change lands in audit_log with its old and
+        new value, so a lost update is detectable after the fact rather than
+        silent. (Proper optimistic locking needs a version column and a
+        migration; not worth one at 10 users until it actually bites.)
+        """
+        now = int(time.time())
+        with self._tx() as c:
+            before = c.execute(
+                "SELECT * FROM project WHERE id = ?", (project_id,)).fetchone()
+            if before is None:
+                return None
+            applied = {}
+            for key in self.MUTABLE:
+                if key not in changes:
+                    continue
+                old_value = before[key]
+                new_value = changes[key]
+                if old_value == new_value:
+                    continue
+                c.execute(f"UPDATE project SET {key} = ? WHERE id = ?",
+                          (new_value, project_id))
+                applied[key] = (old_value, new_value)
+                c.execute(
+                    """INSERT INTO audit_log (ts, actor_user_id, action,
+                           target_type, target_id, detail)
+                       VALUES (?,?,'project_update','project',?,?)""",
+                    (now, actor_id, str(project_id),
+                     f"{key}: {old_value!r} -> {new_value!r}"))
+            row = c.execute(
+                "SELECT * FROM project WHERE id = ?", (project_id,)).fetchone()
+            return {"project": dict(row), "changed": sorted(applied)}
+
+    def project_is_deletable(self, project_id):
+        """A project carrying money is history, not a record you remove.
+
+        Returns None if deletable, else the reason. The check is on money
+        rather than on age or a flag, because the real case for deletion is
+        'created by mistake a minute ago' and the real danger is deleting
+        something a signed-off total depends on.
+        """
+        row = self.query_one(
+            """SELECT purchase_order_cents, invoiced_prior_cents
+               FROM project WHERE id = ?""", (project_id,))
+        if row is None:
+            return "no such project"
+        if row["purchase_order_cents"] or row["invoiced_prior_cents"]:
+            return ("project carries contract or invoiced value; set its "
+                    "status to Complete instead of deleting it")
+        return None
+
+    def delete_project(self, project_id, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            row = c.execute(
+                "SELECT name, job_code FROM project WHERE id = ?",
+                (project_id,)).fetchone()
+            if row is None:
+                return False
+            c.execute("DELETE FROM job_code_issue WHERE project_id = ?", (project_id,))
+            c.execute("DELETE FROM job_code_alias WHERE project_id = ?", (project_id,))
+            c.execute("DELETE FROM project WHERE id = ?", (project_id,))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'project_delete','project',?,?)""",
+                (now, actor_id, str(project_id),
+                 f"{row['job_code']} {row['name']}"))
+            return True

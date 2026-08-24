@@ -69,7 +69,42 @@ jobs:
           mkdir -p /tmp/head && cp -r ops/migrations /tmp/head/
           git checkout --quiet "$prev"
           rm -rf ops/migrations && cp -r /tmp/head/migrations ops/
-          python3 -W error::ResourceWarning -m unittest discover -s tests
+
+          # Retried once. The old tag's tests are frozen, so any flakiness
+          # they had at release time cannot be fixed -- only tolerated.
+          if python3 -W error::ResourceWarning -m unittest discover -s tests; then
+            exit 0
+          fi
+          echo "::warning::N-1 first attempt failed; retrying once"
+          if python3 -W error::ResourceWarning -m unittest discover -s tests; then
+            exit 0
+          fi
+
+          cat <<'TRIAGE'
+
+          ============================================================
+          N-1 FAILED. Before assuming the migration is unsafe, note that
+          this runs the OLD TAG'S TESTS, which are frozen. There are three
+          reasons they can fail, and only one is a real problem:
+
+          1. REAL INCOMPATIBILITY -- the new schema breaks the previous
+             release's code. This is what the gate is for. Fix the
+             migration: expand, do not contract.
+
+          2. THE OLD TEST ASSERTED ON SCHEMA INVENTORY -- e.g. a hardcoded
+             list of migration filenames. The code is fine; the test was
+             over-specific about a thing that legitimately changed.
+
+          3. THE OLD TEST WAS FLAKY at the time it was tagged.
+
+          For 2 and 3 the fix is to TAG A NEW RELEASE from a commit whose
+          tests are correct, so the next N-1 run has a healthy baseline.
+          Confirm case 1 is excluded by checking the migration is
+          expand-only (ADD COLUMN / CREATE, no DROP or type change) and
+          that the previous release's queries still run against it.
+          ============================================================
+          TRIAGE
+          exit 1
 
   image:
     needs: [test]

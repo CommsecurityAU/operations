@@ -133,7 +133,9 @@ requires a reserved block and refuses until one is agreed.
    differences are outstanding from the 24 Aug run: twelve project leads
    filled in on the sheet since import, two projects added there, and two
    job codes to correct in the platform.
-4. **Tag `v0.1.0`.** Until a release tag exists the `n1` job no-ops with
+4. **Tag a new release.** `v0.1.0` predates the fixes to two tests, so the
+   N-1 job fails against it for reasons that are not incompatibility. Tag
+   from current HEAD and the next run has a healthy baseline. Until a release tag exists the `n1` job no-ops with
    "no release tag yet", so the next migration gets no N-1 check — which is
    exactly when one is worth having.
 5. **Confirm the corporate tax rate with the accountant.** 25% (2500 bp) is
@@ -203,6 +205,13 @@ requires a reserved block and refuses until one is agreed.
   missing column.
 
 **Checks that were wrong about themselves**
+
+- N-1 runs the OLD TAG'S tests, which are frozen — so it fails when an old
+  test hardcoded schema details or was flaky, neither of which is an
+  incompatibility. Both happened on its first real run. The remedy is to tag
+  a new release from a commit whose tests are correct, never to weaken the
+  gate. Confirm the migration is expand-only by inspection; that is the
+  check that actually matters.
 
 - Naive string search over source produced three false failures: `innerHTML`
   in the comment banning innerHTML, `round()` in the docstring explaining

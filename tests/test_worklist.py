@@ -61,6 +61,11 @@ class Case(unittest.TestCase):
             "sub": "s1", "email": "r@x", "name": "R"})
         for role in self.roles:
             self.db.grant_role(self.user["id"], 1, role, self.user["id"])
+        # Issuing requires a reserved block (ADR-29). Reserving one is part
+        # of the real workflow, so the tests do it rather than pretending
+        # allocation works without an agreed range.
+        self.db.reserve_job_number_range(
+            9000, 9999, "test block", self.user["id"])
 
     def tearDown(self):
         self.sched.stop()

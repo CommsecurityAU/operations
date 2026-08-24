@@ -181,6 +181,70 @@ class TestMigrations(Base):
             os.unlink(bad)
 
 
+class TestJobNumberRange(Base):
+    """ADR-29: the platform allocates only from a block it owns."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = self.db.upsert_user("s1", "r@x", "R")
+
+    def test_allocation_refuses_until_a_range_is_reserved(self):
+        """The safe state is the default state. iTrade still issues from the
+        general series, so allocating without an agreed block could hand out
+        a number iTrade hands out tomorrow."""
+        from ops.db import JobNumberError
+        with self.assertRaises(JobNumberError) as e:
+            self.db.next_job_number()
+        self.assertIn("collide with iTrade", str(e.exception))
+
+    def test_reserving_moves_the_sequence_into_the_block(self):
+        self.db.reserve_job_number_range(9000, 9999, "agreed", self.user["id"])
+        self.assertEqual(self.db.next_job_number(), "JN-9000")
+        self.assertEqual(self.db.next_job_number(), "JN-9001")
+
+    def test_a_range_containing_an_existing_code_is_refused(self):
+        """A block that contains a code already in use is not reserved -- it
+        is a collision waiting for someone to allocate into it."""
+        with self.db._tx() as c:
+            c.execute("""INSERT INTO project (entity_id,name,job_code,status,created_ts)
+                         VALUES (1,'Existing','JN-9500','Active',0)""")
+        with self.assertRaises(ValueError) as e:
+            self.db.reserve_job_number_range(9000, 9999, "x", self.user["id"])
+        self.assertIn("JN-9500", str(e.exception))
+        self.assertIn("Existing", str(e.exception))
+
+    def test_a_block_that_avoids_existing_codes_is_accepted(self):
+        with self.db._tx() as c:
+            c.execute("""INSERT INTO project (entity_id,name,job_code,status,created_ts)
+                         VALUES (1,'Existing','JN-6889','Active',0)""")
+        result = self.db.reserve_job_number_range(
+            9000, 9999, "agreed", self.user["id"])
+        self.assertEqual(result["next_value"], 9000)
+
+    def test_exhausting_the_block_refuses_rather_than_running_past_it(self):
+        """Running past the end would start issuing numbers iTrade owns --
+        silently, and only at the boundary."""
+        from ops.db import JobNumberError
+        self.db.reserve_job_number_range(9000, 9001, "small", self.user["id"])
+        self.assertEqual(self.db.next_job_number(), "JN-9000")
+        self.assertEqual(self.db.next_job_number(), "JN-9001")
+        with self.assertRaises(JobNumberError) as e:
+            self.db.next_job_number()
+        self.assertIn("exhausted", str(e.exception))
+
+    def test_backwards_ranges_are_refused(self):
+        with self.assertRaises(ValueError):
+            self.db.reserve_job_number_range(9999, 9000, "x", self.user["id"])
+
+    def test_reserving_is_audited_with_who_agreed_it(self):
+        self.db.reserve_job_number_range(
+            9000, 9999, "agreed with Justin, 24 Aug", self.user["id"])
+        row = self.db.query_one(
+            "SELECT detail FROM audit_log WHERE action='job_range_reserve'")
+        self.assertIn("JN-9000..JN-9999", row["detail"])
+        self.assertIn("Justin", row["detail"])
+
+
 class TestHealth(Base):
     def test_healthy_after_migrate(self):
         h = self.db.health()
@@ -193,7 +257,8 @@ class TestHealth(Base):
             c.execute("DELETE FROM schema_migrations")
         h = self.db.health()
         self.assertFalse(h["ok"])
-        self.assertEqual(h["schema"]["missing"], ["001_foundation.sql"])
+        self.assertEqual(h["schema"]["missing"],
+                         sorted(os.listdir(MIGRATIONS)))
 
     def test_HEALTHY_when_schema_is_AHEAD_of_the_binary(self):
         """The rollback-loop guard, and the reason this is >= not ==.
@@ -251,6 +316,9 @@ class TestWriteMethods(Base):
             "SELECT COUNT(*) FROM audit_log WHERE action='sign_in'"), 1)
 
     def test_job_numbers_are_sequential_and_unique_under_concurrency(self):
+        # Allocation refuses without a reserved block (ADR-29).
+        u = self.db.upsert_user("range", "r@x", "R")
+        self.db.reserve_job_number_range(9000, 9999, "test", u["id"])
         issued, lock = [], threading.Lock()
 
         def take():

@@ -17,6 +17,15 @@ ROLE_WRITE = "operations"
 ROLE_DELETE = "admin"
 
 STATUSES = ("Active", "DLP", "SLA", "Complete")
+# NO "issue" here, deliberately. Job numbers still come from iTrade, so a
+# number this platform allocated could collide with one iTrade hands out
+# tomorrow -- and the collision would not surface until both reached Xero.
+# Creation therefore records the code we were GIVEN, or records that we do
+# not have one yet. Allocation stays in the worklist, as an explicit act by
+# someone who knows the number is ours to give (ADR-28).
+JOB_CODE_MODES = ("existing", "defer")
+JOB_CODE_PATTERN = __import__("re").compile(r"^[A-Za-z0-9][A-Za-z0-9\-_/]{0,39}$")
+DEFERRED = "TBA"
 MAX_NAME = 200
 MAX_MONEY_CENTS = 100_000_000_00      # $100m: a typo, not a project
 
@@ -126,6 +135,36 @@ def validate(db: Db, payload: dict[str, Any], entity_id: int,
             errors["type_id"] = "required"
         else:
             fields["type_id"] = row["id"]
+
+    # How the project gets its number. Always allocating was wrong: two
+    # projects created in the UI already had codes of their own, so the
+    # platform issued numbers nobody wanted and burnt them from the sequence.
+    if required:
+        # Defaults to deferring. A default that allocates is how two
+        # projects ended up with numbers nobody wanted.
+        mode = payload.get("job_code_mode") or "defer"
+        if mode not in JOB_CODE_MODES:
+            errors["job_code_mode"] = f"must be one of {', '.join(JOB_CODE_MODES)}"
+        elif mode == "existing":
+            code = (payload.get("job_code") or "").strip()
+            if not code:
+                errors["job_code"] = "required when the project already has one"
+            elif not JOB_CODE_PATTERN.match(code):
+                errors["job_code"] = "letters, digits, - _ / only"
+            else:
+                clash = db.query_one(
+                    "SELECT name FROM project WHERE job_code = ?", (code,))
+                if clash is not None:
+                    # Naming the other project matters: "already used" sends
+                    # someone hunting, "already used by Oasis Health Group
+                    # Gym" ends the question.
+                    errors["job_code"] = f"already used by {clash['name']}"
+                else:
+                    fields["job_code"] = code
+        elif mode == "defer":
+            # Deliberately NOT allocating. The worklist entry created
+            # alongside makes the deferral visible.
+            fields["job_code"] = DEFERRED
 
     if "project_no" in payload:
         fields["project_no"] = (payload.get("project_no") or "").strip() or None
@@ -275,6 +314,44 @@ def register(router: Router, db: Db) -> None:
             raise HttpError(404, "not found")
         if client:
             result["client_resolved"] = client
+        return 200, result
+
+    @router.route("/api/projects/{project_id}/job-code", role=ROLE_DELETE,
+                  method="POST")
+    def change_job_code(handler, user, project_id):
+        """Correcting a job code is admin-only and needs a reason.
+
+        Separate from PATCH on purpose: `job_code` stays immutable through
+        the ordinary edit path, because reassigning one breaks every
+        downstream reference. This is the deliberate exception, priced
+        accordingly.
+        """
+        ids = entity_ids(user)
+        row = db.query_one(
+            "SELECT id, entity_id FROM project WHERE id = ?", (project_id,))
+        if row is None or row["entity_id"] not in ids:
+            raise HttpError(404, "not found")
+        payload = handler.read_json()
+        code = (payload.get("job_code") or "").strip()
+        reason = (payload.get("reason") or "").strip()
+        errors = {}
+        if not code:
+            errors["job_code"] = "required"
+        elif not JOB_CODE_PATTERN.match(code):
+            errors["job_code"] = "letters, digits, - _ / only"
+        if not reason:
+            errors["reason"] = "required: say why the current code is wrong"
+        if errors:
+            raise HttpError(400, "validation failed", errors)
+        blocked = db.job_code_is_changeable(row["id"])
+        if blocked:
+            raise HttpError(409, blocked)
+        try:
+            result = db.change_job_code(row["id"], code, reason, user["id"])
+        except ValueError as e:
+            raise HttpError(409, str(e))
+        if result is None:
+            raise HttpError(404, "not found")
         return 200, result
 
     @router.route("/api/projects/{project_id}", role=ROLE_DELETE,

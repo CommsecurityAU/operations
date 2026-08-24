@@ -24,10 +24,11 @@ been fixed.
 sequence and released together.
 
 **On completion of a phase, the corresponding workbook tab is made
-read-only.** This is the control against a shadow system and it is not
-optional. It is also **currently not running** — nothing has been made
-read-only, so the platform and the workbook are both live and editable,
-which is the exact condition the control exists to prevent.
+read-only** — or, where that is refused, drift between the two is **detected
+on a schedule** instead (ADR-27). What matters is not that the workbook is
+locked but that divergence cannot happen in silence. The Project List tab
+stays editable and is covered by `tools/drift_check.py`; every later phase
+should choose one of the two before it closes, and neither is optional.
 
 ---
 
@@ -38,10 +39,11 @@ Stated explicitly so nobody has to infer it again.
 | Migration | STP | Contents |
 |---|---|---|
 | `001_foundation` | STP-0 + STP-1 | entity, period, users, user_entity_role, audit_log, client, project_type, project, job_code_alias, job_code_issue, job_number_sequence |
-| `002` | STP-2 | customer_po, customer_po_revision, claim_line, claim_line_revision, opening balances |
-| `003` | STP-3 | supplier, supplier_po, supplier_po_line, supplier_invoice, fx_rate, project_expense_estimate |
-| `004` | STP-4 | office_expense_line, payroll_rate, tax_rate |
-| `005` | STP-5 | rollup views only |
+| `002` | STP-1 | job-number range columns (ADR-29) |
+| `003` | STP-2 | customer_po, customer_po_revision, claim_line, claim_line_revision, opening balances |
+| `004` | STP-3 | supplier, supplier_po, supplier_po_line, supplier_invoice, fx_rate, project_expense_estimate |
+| `005` | STP-4 | office_expense_line, payroll_rate, tax_rate |
+| `006` | STP-5 | rollup views only |
 
 **STP-0 and STP-1 share migration `001`.** ARCH-001 assigned the project
 register to STP-1's migration, but the register is what STP-0's exit
@@ -56,7 +58,7 @@ does not.
 | STP | State |
 |---|---|
 | **STP-0** Foundation | Code complete, CI green, image published. **One exit criterion unmet: OIDC registration.** |
-| **STP-1** Project register | Schema, importer, register screen and CRUD done. Job numbers now issued by the platform (`JN-6889` onward). Worklist screen built but unreviewed. Read-only tab outstanding. |
+| **STP-1** Project register | Schema, importer, register screen and CRUD done. Job-number allocation built but switched off (ADR-28). Worklist screen built but unreviewed. Read-only tab outstanding. |
 | STP-2 … STP-6 | Not started |
 
 ---
@@ -140,10 +142,12 @@ Every ambiguous code is **visible and owned**, not silently guessed.
   existing record on a normalised key and the user is told, because
   `MSquared` / `M Squared` / `M-Squared` as three rows splits the by-client
   rollup and is painful to unpick once invoices reference all three
-- Job numbers allocated **at commit, never on opening a form** — a number
-  handed out early leaves a gap every time someone changes their mind, and
-  gaps in the series get queried a year later. **Done**: `JN-6889` and
-  `JN-6890` issued by the platform
+- Job numbers: allocation is built and **deliberately switched off**
+  (ADR-28). Creation records the code iTrade gave us, or records `TBA` and
+  puts the project on the worklist. When allocation is turned on it happens
+  at commit, never on opening a form — a number handed out early leaves a
+  gap every time someone changes their mind. `JN-6889` and `JN-6890` were
+  issued before this was settled and are now permanent gaps
 - Worklist screen over `job_code_issue`, resolution writing `job_code_alias`
   and an `audit_log` row — **built, not yet reviewed**
 
@@ -151,10 +155,16 @@ Every ambiguous code is **visible and owned**, not silently guessed.
 
 - [x] 59 projects visible in the platform and reconciling to $3,520,041.73
   orders in hand
-- [x] The next new job number is issued by the platform, not iTrade
+- [ ] The next new job number is issued by the platform, not iTrade —
+  **un-ticked 24 Aug 2026 (ADR-28)**. iTrade still issues, so the platform
+  records the code it is given or records `TBA`. Allocation exists and is
+  switched off; this criterion stays open until job-number authority
+  actually moves.
 - Every one of the 8 worklist rows is visible with an owner
-- **Project List tab read-only** — the control against a shadow system, and
-  still not running on any tab
+- **Drift detection running on the Project List tab** (ADR-27), replacing
+  the read-only rule for this tab. Run `tools/drift_check.py` after any
+  session of workbook edits, and before any figure is quoted from either
+  side
 
 **Changed from ARCH-001.** Its exit criterion was "zero unresolved job
 codes". ADR-23 replaced that with import-flagged: resolution gates **STP-5**,
@@ -177,7 +187,7 @@ eliminating the copy-forward. History does not move when a PO is corrected.
 
 **Proposal.**
 
-- Migration `002`: `customer_po`, `customer_po_revision`, `claim_line`,
+- Migration `003`: `customer_po`, `customer_po_revision`, `claim_line`,
   `claim_line_revision`
 - **29 synthetic opening `claim_line` rows** (ADR-22): dated 30 Jun 2026,
   `is_opening_balance = 1`, immutable, `customer_po_id` NULL, totalling
@@ -217,7 +227,7 @@ with roll-up and estimate clearly separated.
 
 **Proposal.**
 
-- Migration `003`: `supplier`, `supplier_po`, `supplier_po_line`,
+- Migration `004`: `supplier`, `supplier_po`, `supplier_po_line`,
   `supplier_invoice`, `fx_rate`, `project_expense_estimate`
 - Per-entity sequential supplier PO numbering via `UPDATE … RETURNING`
   inside the issuing transaction
@@ -249,7 +259,7 @@ dated rate table. One wage change propagates automatically.
 
 **Proposal.**
 
-- Migration `004`: `office_expense_line`, `payroll_rate`, `tax_rate`
+- Migration `005`: `office_expense_line`, `payroll_rate`, `tax_rate`
 - Rates are **dated rows per entity, never configuration** (ADR-20). Every
   computed figure records the `rate_bp` it used, so changing a rate cannot
   restate a prior year
@@ -289,7 +299,7 @@ and no cell can be `#REF!` or `#N/A` by construction.
 
 **Proposal.**
 
-- Migration `005`: `v_project_financials`, `v_monthly_pl`, `v_dashboard`,
+- Migration `006`: `v_project_financials`, `v_monthly_pl`, `v_dashboard`,
   `v_by_type`, `v_by_client` — views only, no new fact tables
 - Operations Summary, monthly P&L, actual vs plan vs forecast, by type, by
   client, by project
@@ -345,8 +355,11 @@ check — which is exactly when one is worth having.
 everywhere). Activating CommSecurity Pty Ltd or RAVEN BOX is a UI change and
 a set of grants, not a migration. Do it when a real project needs it.
 
-**Rounding verification.** Before STP-1 closes, recompute the three pinned
-FY27 totals under both rounding modes and record any divergence (ADR-15).
+**Rounding verification — done, 24 Aug 2026.** The three pinned FY27 totals
+are identical under half-up, banker's and truncation: no source value in the
+register carries sub-cent precision, so nothing in STP-1 rounds. `ops/money.py`
+now holds the single rounding function ADR-15 requires, ahead of STP-2 where
+GST makes the mode start to matter.
 
 ---
 

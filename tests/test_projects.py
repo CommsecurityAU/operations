@@ -80,36 +80,58 @@ class Case(unittest.TestCase):
         except ValueError:
             return r.status, raw
 
+    _code = [7000]
+
     def valid(self, **over):
+        """Supplies a distinct job code by default.
+
+        Creation no longer allocates (ADR-28), so a test that needs a real
+        code has to say so -- which is the point: the platform records the
+        number it was given rather than inventing one.
+        """
+        self._code[0] += 1
         payload = {"name": "New Site - ICN", "client_id": self.client_id,
                    "type_id": self.type_id, "status": "Active",
                    "project_lead": "Joshua Koch",
-                   "purchase_order_cents": 100000}
+                   "purchase_order_cents": 100000,
+                   "job_code_mode": "existing",
+                   "job_code": f"JN-{self._code[0]}"}
         payload.update(over)
         return payload
 
 
 class TestCreate(Case):
-    def test_creates_and_allocates_a_job_number(self):
+    def test_creates_with_the_code_it_was_given(self):
         status, body = self.call("POST", "/api/projects", self.valid())
         self.assertEqual(status, 201)
         self.assertTrue(body["job_code"].startswith("JN-"))
         self.assertEqual(body["name"], "New Site - ICN")
 
-    def test_job_numbers_are_sequential_and_not_reused(self):
-        a = self.call("POST", "/api/projects", self.valid(name="A"))[1]
-        b = self.call("POST", "/api/projects", self.valid(name="B"))[1]
-        self.assertEqual(int(b["job_code"][3:]), int(a["job_code"][3:]) + 1)
-
-    def test_a_rejected_create_does_not_burn_a_job_number(self):
-        """The number is allocated inside the insert's transaction. If it
-        were handed out when the form opened, every abandoned form would
-        leave a gap in the series."""
+    def test_creation_NEVER_allocates_a_number(self):
+        """ADR-28: iTrade still issues. A number allocated here could
+        collide with one issued there tomorrow, and the collision would not
+        surface until both reached Xero."""
         before = self.db.scalar("SELECT next_value FROM job_number_sequence")
-        self.assertEqual(self.call("POST", "/api/projects",
-                                   self.valid(name=""))[0], 400)
+        self.call("POST", "/api/projects", self.valid(name="A"))
+        self.call("POST", "/api/projects", self.valid(name="B",
+                                                      job_code_mode="defer"))
         self.assertEqual(
             self.db.scalar("SELECT next_value FROM job_number_sequence"), before)
+
+    def test_the_default_is_to_defer_not_to_allocate(self):
+        """A default that allocates is how two projects ended up with numbers
+        nobody wanted."""
+        payload = self.valid()
+        del payload["job_code_mode"], payload["job_code"]
+        _s, body = self.call("POST", "/api/projects", payload)
+        self.assertEqual(body["job_code"], "TBA")
+        self.assertEqual(body["needs_resolution"], 1)
+
+    def test_asking_to_allocate_is_refused(self):
+        status, body = self.call("POST", "/api/projects",
+                                 self.valid(job_code_mode="issue"))
+        self.assertEqual(status, 400)
+        self.assertIn("job_code_mode", body["detail"])
 
     def test_create_is_audited(self):
         self.call("POST", "/api/projects", self.valid())
@@ -281,6 +303,171 @@ class TestClientEntry(Case):
         self.assertEqual(status, 200)
         self.assertEqual(body["changed"], ["client_id"])
         self.assertTrue(body["client_resolved"]["created"])
+
+
+class TestJobCodeOnCreate(Case):
+    """Always allocating was wrong. Two projects created in the UI already
+    had codes of their own, so the platform issued numbers nobody wanted and
+    burnt them out of the sequence permanently."""
+
+    def test_an_existing_code_can_be_supplied(self):
+        _s, body = self.call("POST", "/api/projects",
+                             self.valid(job_code_mode="existing",
+                                        job_code="JN-6948"))
+        self.assertEqual(body["job_code"], "JN-6948")
+
+    def test_supplying_a_code_does_not_burn_a_number(self):
+        before = self.db.scalar("SELECT next_value FROM job_number_sequence")
+        self.call("POST", "/api/projects",
+                  self.valid(job_code_mode="existing", job_code="JN-6948"))
+        self.assertEqual(
+            self.db.scalar("SELECT next_value FROM job_number_sequence"), before)
+
+    def test_a_supplied_code_cannot_collide(self):
+        """This is the class C defect trying to come back through the front
+        door -- and the message names the other project."""
+        self.call("POST", "/api/projects",
+                  self.valid(name="First", job_code_mode="existing",
+                             job_code="JN-6948"))
+        status, body = self.call("POST", "/api/projects",
+                                 self.valid(name="Second",
+                                            job_code_mode="existing",
+                                            job_code="JN-6948"))
+        self.assertEqual(status, 400)
+        self.assertIn("First", body["detail"]["job_code"])
+
+    def test_deferring_creates_a_worklist_entry(self):
+        """A project with no number yet is a decision deferred, not an
+        error. The worklist entry is what stops it being a blank cell nobody
+        revisits."""
+        _s, body = self.call("POST", "/api/projects",
+                             self.valid(job_code_mode="defer"))
+        self.assertEqual(body["job_code"], "TBA")
+        self.assertEqual(body["needs_resolution"], 1)
+        self.assertIsNotNone(self.db.query_one(
+            "SELECT id FROM job_code_issue WHERE project_id = ? AND status='open'",
+            (body["id"],)))
+
+    def test_deferring_does_not_burn_a_number(self):
+        before = self.db.scalar("SELECT next_value FROM job_number_sequence")
+        self.call("POST", "/api/projects", self.valid(job_code_mode="defer"))
+        self.assertEqual(
+            self.db.scalar("SELECT next_value FROM job_number_sequence"), before)
+
+    def test_the_sequence_is_still_there_for_when_issuance_moves_here(self):
+        """ADR-28 is "not yet", not "never". The worklist can still issue,
+        as a deliberate act by someone who knows the number is ours to give."""
+        self.assertGreater(
+            self.db.scalar("SELECT next_value FROM job_number_sequence"), 0)
+
+    def test_a_malformed_supplied_code_is_refused(self):
+        for bad in ("", "a b c", "JN-<script>", "x" * 60):
+            status, _b = self.call("POST", "/api/projects",
+                                   self.valid(name=f"P {bad[:5]}",
+                                              job_code_mode="existing",
+                                              job_code=bad))
+            self.assertEqual(status, 400, bad)
+
+
+class TestJobCodeCorrection(Case):
+    roles = ("viewer", "operations", "admin")
+
+    def make(self, **over):
+        return self.call("POST", "/api/projects", self.valid(**over))[1]
+
+    def test_a_wrongly_issued_code_can_be_corrected(self):
+        p = self.make(purchase_order_cents=0)
+        status, body = self.call("POST", f"/api/projects/{p['id']}/job-code",
+                                 {"job_code": "JN-6948",
+                                  "reason": "iTrade had already issued this"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["job_code"], "JN-6948")
+        self.assertEqual(self.db.scalar(
+            "SELECT job_code FROM project WHERE id=?", (p["id"],)), "JN-6948")
+
+    def test_the_old_code_survives_as_an_alias(self):
+        """Traceability is the whole reason job_code is normally immutable,
+        so a correction must not simply erase the old value."""
+        p = self.make(purchase_order_cents=0)
+        self.call("POST", f"/api/projects/{p['id']}/job-code",
+                  {"job_code": "JN-6948", "reason": "wrong number issued"})
+        self.assertIsNotNone(self.db.query_one(
+            "SELECT id FROM job_code_alias WHERE legacy_code = ? AND project_id = ?",
+            (p["job_code"], p["id"])))
+
+    def test_a_reason_is_mandatory(self):
+        p = self.make(purchase_order_cents=0)
+        status, body = self.call("POST", f"/api/projects/{p['id']}/job-code",
+                                 {"job_code": "JN-6948"})
+        self.assertEqual(status, 400)
+        self.assertIn("reason", body["detail"])
+
+    def test_it_cannot_collide_with_another_project(self):
+        a = self.make(name="A", purchase_order_cents=0)
+        b = self.make(name="B", purchase_order_cents=0)
+        status, body = self.call("POST", f"/api/projects/{b['id']}/job-code",
+                                 {"job_code": a["job_code"], "reason": "x"})
+        self.assertEqual(status, 409)
+        self.assertIn("already used", body["error"])
+
+    def test_refused_once_the_project_has_invoicing_history(self):
+        """Same guard as delete, for the same reason: correcting a code with
+        invoices against it orphans those references."""
+        p = self.make(purchase_order_cents=100000,
+                      invoiced_prior_cents=50000)
+        status, body = self.call("POST", f"/api/projects/{p['id']}/job-code",
+                                 {"job_code": "JN-7777", "reason": "x"})
+        self.assertEqual(status, 409)
+        self.assertIn("orphan", body["error"])
+
+    def test_correcting_to_a_placeholder_works_even_when_others_hold_it(self):
+        """A placeholder is non-unique by definition -- several projects sit
+        on TBA at once, which is what it means. Enforcing uniqueness on it
+        blocked the one honest way to say "this number was issued in error
+        and there is no correct one yet"."""
+        a = self.make(name="Already TBA", job_code_mode="defer",
+                      purchase_order_cents=0)
+        self.assertEqual(a["job_code"], "TBA")
+        b = self.make(name="Wrongly Numbered", purchase_order_cents=0)
+        status, body = self.call("POST", f"/api/projects/{b['id']}/job-code",
+                                 {"job_code": "TBA",
+                                  "reason": "number issued in error; none assigned yet"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.db.scalar(
+            "SELECT COUNT(*) FROM project WHERE job_code='TBA'"), 2)
+
+    def test_real_codes_are_still_unique(self):
+        """The exemption is for placeholders only."""
+        a = self.make(name="A", purchase_order_cents=0)
+        b = self.make(name="B", purchase_order_cents=0)
+        status, _b = self.call("POST", f"/api/projects/{b['id']}/job-code",
+                               {"job_code": a["job_code"], "reason": "x"})
+        self.assertEqual(status, 409)
+
+    def test_correcting_to_a_placeholder_puts_it_back_on_the_worklist(self):
+        p = self.make(purchase_order_cents=0)
+        self.call("POST", f"/api/projects/{p['id']}/job-code",
+                  {"job_code": "TBA", "reason": "number not assigned yet"})
+        self.assertIsNotNone(self.db.query_one(
+            "SELECT id FROM job_code_issue WHERE project_id=? AND status='open'",
+            (p["id"],)))
+        self.assertEqual(self.db.scalar(
+            "SELECT needs_resolution FROM project WHERE id=?", (p["id"],)), 1)
+
+    def test_the_change_is_audited_with_the_reason(self):
+        p = self.make(purchase_order_cents=0)
+        self.call("POST", f"/api/projects/{p['id']}/job-code",
+                  {"job_code": "JN-6948", "reason": "iTrade already issued it"})
+        row = self.db.query_one(
+            "SELECT detail FROM audit_log WHERE action='job_code_change'")
+        self.assertIn("iTrade already issued it", row["detail"])
+        self.assertIn(p["job_code"], row["detail"])
+
+    def test_job_code_is_still_immutable_through_the_ordinary_edit_path(self):
+        p = self.make(purchase_order_cents=0)
+        status, _b = self.call("PATCH", f"/api/projects/{p['id']}",
+                               {"job_code": "JN-6948"})
+        self.assertEqual(status, 400)
 
 
 class TestUpdate(Case):

@@ -42,6 +42,10 @@ class MigrationError(Exception):
     pass
 
 
+class JobNumberError(Exception):
+    """Allocation refused. Carries the reason, which is always actionable."""
+
+
 def _check_sqlite_version():
     actual = tuple(int(p) for p in sqlite3.sqlite_version.split("."))
     if actual < MIN_SQLITE:
@@ -319,17 +323,84 @@ class Db:
     # ----------------------------------------------------------- projects
     @staticmethod
     def _issue_job_number(c):
-        """Allocated inside the caller's transaction, at COMMIT time.
+        """Allocate the next number from the platform's RESERVED RANGE.
 
-        Never on opening a form: a number handed out before the user decides
-        to save leaves a gap in the sequence every time someone changes
-        their mind, and gaps in a job-number series are the kind of thing
-        that gets queried a year later by someone reconciling to Xero.
+        Allocated inside the caller's transaction, at commit time -- never on
+        opening a form, or every abandoned form leaves a gap.
+
+        Refuses unless a range has been configured. iTrade still issues from
+        the general series, so drawing from it here would eventually hand out
+        a number iTrade also hands out, and the collision would surface only
+        when both reached Xero (ADR-29). No agreed range, no issuing: the
+        safe state is the default state, not something to remember.
         """
-        n = c.execute(
-            "UPDATE job_number_sequence SET next_value = next_value + 1 "
-            "WHERE id = 1 RETURNING next_value - 1").fetchone()[0]
+        row = c.execute(
+            "SELECT next_value, range_start, range_end "
+            "FROM job_number_sequence WHERE id = 1").fetchone()
+        if row["range_start"] is None or row["range_end"] is None:
+            raise JobNumberError(
+                "no job-number range is reserved for this platform, so "
+                "allocating one could collide with iTrade. Record the code "
+                "iTrade gave you instead, or reserve a range first "
+                "(tools/job_number_range.py).")
+        n = row["next_value"]
+        if n < row["range_start"] or n > row["range_end"]:
+            raise JobNumberError(
+                f"the reserved range JN-{row['range_start']}..JN-{row['range_end']} "
+                "is exhausted; reserve another block before issuing again")
+        c.execute("UPDATE job_number_sequence SET next_value = ? WHERE id = 1",
+                  (n + 1,))
         return f"JN-{n}"
+
+    def reserve_job_number_range(self, start, end, note, actor_id):
+        """Agree a block this platform owns exclusively.
+
+        Refuses to overlap anything already in use, because a range that
+        contains an existing code is not reserved -- it is a collision
+        waiting for someone to allocate into it.
+        """
+        if start > end:
+            raise ValueError("start must not be after end")
+        now = int(time.time())
+        with self._tx() as c:
+            used = c.execute(
+                """SELECT job_code, name FROM project
+                   WHERE job_code GLOB 'JN-[0-9]*'
+                     AND CAST(substr(job_code, 4) AS INTEGER) BETWEEN ? AND ?
+                   ORDER BY job_code LIMIT 1""", (start, end)).fetchone()
+            if used is not None:
+                raise ValueError(
+                    f"{used['job_code']} ({used['name']}) already sits inside "
+                    f"JN-{start}..JN-{end}; pick a block nothing uses")
+            c.execute(
+                """UPDATE job_number_sequence
+                   SET range_start = ?, range_end = ?, range_note = ?,
+                       next_value = ?
+                   WHERE id = 1""", (start, end, note, start))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'job_range_reserve','job_number_sequence','1',?)""",
+                (now, actor_id, f"JN-{start}..JN-{end}: {note}"))
+            return {"range_start": start, "range_end": end, "note": note,
+                    "next_value": start}
+
+    def job_number_range(self):
+        return self.query_one(
+            "SELECT next_value, range_start, range_end, range_note "
+            "FROM job_number_sequence WHERE id = 1")
+
+    def job_code_in_use(self, code, exclude_project_id=None):
+        """The other project holding this code, or None.
+
+        Placeholders are exempt: several projects legitimately sit on TBA at
+        once, which is what it means.
+        """
+        if (code or "").upper() in self.PLACEHOLDER_CODES:
+            return None
+        return self.query_one(
+            "SELECT id, name FROM project WHERE job_code = ? AND id IS NOT ?",
+            (code, exclude_project_id))
 
     def next_job_number(self):
         with self._tx() as c:
@@ -402,6 +473,17 @@ class Db:
                        target_type, target_id, detail)
                    VALUES (?,?,'project_create','project',?,?)""",
                 (now, actor_id, str(pid), f"{job_code} {fields['name']}"))
+            # A project created WITHOUT a number is not an error -- it is a
+            # decision deferred. Put it on the worklist so the deferral is
+            # visible instead of being a blank cell nobody revisits.
+            if job_code.upper() in self.PLACEHOLDER_CODES:
+                c.execute(
+                    """INSERT INTO job_code_issue
+                       (raw_code, class, project_id, created_ts)
+                       VALUES (?,'B',?,?)""", (job_code, pid, now))
+                c.execute(
+                    "UPDATE project SET needs_resolution = 1 WHERE id = ?",
+                    (pid,))
             row = c.execute("SELECT * FROM project WHERE id = ?", (pid,)).fetchone()
             return dict(row)
 
@@ -487,6 +569,17 @@ class Db:
                 new_code = self._issue_job_number(c)
             elif action == "assign":
                 new_code = job_code
+                # Typing the number iTrade gave us is the normal path now
+                # (ADR-29), which makes this the place a duplicate would
+                # enter -- the class C defect coming back through the one
+                # door left open.
+                if new_code and new_code.upper() not in self.PLACEHOLDER_CODES:
+                    clash = c.execute(
+                        "SELECT name FROM project WHERE job_code = ? AND id <> ?",
+                        (new_code, project_id)).fetchone()
+                    if clash is not None:
+                        raise ValueError(
+                            f"{new_code} is already used by {clash['name']}")
 
             if new_code and project_id:
                 c.execute("UPDATE project SET job_code = ? WHERE id = ?",
@@ -573,6 +666,80 @@ class Db:
                 "WHERE project_id = ? AND status = 'open'", (pid,)).fetchone()[0]
             c.execute("UPDATE project SET needs_resolution = ? WHERE id = ?",
                       (1 if open_count else 0, pid))
+
+    def change_job_code(self, project_id, new_code, reason, actor_id):
+        """Correct a wrong job code. ADMIN only, reason mandatory.
+
+        `job_code` is otherwise immutable, because reassigning one breaks
+        every downstream reference including Xero. But that argument holds
+        once a project has history -- not at the point where a number was
+        issued in error, which is exactly what happened when the create form
+        allocated numbers for two projects that already had codes of their
+        own.
+
+        So: allowed, expensive, and traceable. The old code is kept as an
+        alias, the change is audited with a reason, and it is refused once
+        the project carries money -- the same guard as delete, for the same
+        reason.
+        """
+        now = int(time.time())
+        with self._tx() as c:
+            row = c.execute(
+                """SELECT job_code, purchase_order_cents, invoiced_prior_cents
+                   FROM project WHERE id = ?""", (project_id,)).fetchone()
+            if row is None:
+                return None
+            old_code = row["job_code"]
+            if old_code == new_code:
+                return {"changed": False, "job_code": old_code}
+            # Uniqueness applies to real codes only. A placeholder is
+            # non-unique BY DEFINITION -- several projects legitimately sit
+            # on "TBA" at once, which is exactly what it means. Enforcing
+            # uniqueness on it blocks the one honest way to say "this number
+            # was issued in error and there is no correct one yet".
+            if new_code.upper() not in self.PLACEHOLDER_CODES:
+                clash = c.execute(
+                    "SELECT name FROM project WHERE job_code = ? AND id <> ?",
+                    (new_code, project_id)).fetchone()
+                if clash is not None:
+                    raise ValueError(
+                        f"{new_code} is already used by {clash['name']}")
+            c.execute("UPDATE project SET job_code = ? WHERE id = ?",
+                      (new_code, project_id))
+            if old_code and old_code.upper() not in self.PLACEHOLDER_CODES:
+                c.execute(
+                    """INSERT OR IGNORE INTO job_code_alias
+                       (legacy_code, project_id, note, created_ts)
+                       VALUES (?,?,?,?)""",
+                    (old_code, project_id, f"corrected to {new_code}", now))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'job_code_change','project',?,?)""",
+                (now, actor_id, str(project_id),
+                 f"{old_code} -> {new_code}: {reason}"))
+            # A code the platform does not own goes back on the worklist.
+            if new_code.upper() in self.PLACEHOLDER_CODES:
+                c.execute(
+                    """INSERT INTO job_code_issue
+                       (raw_code, class, project_id, created_ts)
+                       VALUES (?,'B',?,?)""", (new_code, project_id, now))
+                c.execute(
+                    "UPDATE project SET needs_resolution = 1 WHERE id = ?",
+                    (project_id,))
+            return {"changed": True, "from": old_code, "job_code": new_code}
+
+    def job_code_is_changeable(self, project_id):
+        """None if it may be corrected, else the reason it may not."""
+        row = self.query_one(
+            """SELECT purchase_order_cents, invoiced_prior_cents
+               FROM project WHERE id = ?""", (project_id,))
+        if row is None:
+            return "no such project"
+        if row["invoiced_prior_cents"]:
+            return ("project has invoicing history against this code; "
+                    "correcting it would orphan those references")
+        return None
 
     def project_is_deletable(self, project_id):
         """A project carrying money is history, not a record you remove.

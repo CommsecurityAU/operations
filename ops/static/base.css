@@ -373,6 +373,10 @@ dialog.sheet::backdrop { background: var(--backdrop); }
   color: var(--t-1);
 }
 .field-hint { font-size: var(--fs-micro); color: var(--t-2); }
+.field-row { display: flex; gap: var(--u2); }
+.field-row select { flex: 1 1 auto; }
+.field-row input { flex: 1 1 auto; }
+.field-row input[hidden] { display: none; }
 .field textarea {
   padding: var(--u2);
   background: var(--s-1);

@@ -81,6 +81,23 @@ export function projectForm({ project, reference, onSaved, onDeleted, canDelete 
     notes: field("Notes", h("textarea", { rows: 2 }, p.notes || "")),
   };
 
+  // Job code, on create only. The platform does NOT allocate: numbers still
+  // come from iTrade, so one issued here could collide with one issued there
+  // tomorrow, and the collision would surface in Xero (ADR-28). Either we
+  // were given a code, or we say plainly that we do not have one yet.
+  const codeMode = h("select", { "aria-label": "Job number" },
+    h("option", { value: "defer" }, "Not assigned yet (goes to the worklist)"),
+    h("option", { value: "existing" }, "It already has a code"));
+  const codeInput = h("input", { type: "text", placeholder: "e.g. JN-6948",
+                                 "aria-label": "Existing job code",
+                                 hidden: true });
+  const codeField = editing ? null : field("Job number",
+    h("div", { class: "field-row" }, codeMode, codeInput));
+  codeMode.addEventListener("change", () => {
+    codeInput.hidden = codeMode.value !== "existing";
+    if (!codeInput.hidden) codeInput.focus();
+  });
+
   const leads = h("datalist", { id: "leads" },
     reference.leads.map((l) => h("option", { value: l })));
   const clients = h("datalist", { id: "clients" },
@@ -93,16 +110,23 @@ export function projectForm({ project, reference, onSaved, onDeleted, canDelete 
   const remove = canDelete && editing
     ? h("button", { type: "button", class: "danger" }, "Delete")
     : null;
+  // Deliberately not part of the ordinary save: job_code stays immutable
+  // through PATCH, and this is the priced exception.
+  const fixCode = canDelete && editing
+    ? h("button", { type: "button" }, "Correct job code")
+    : null;
 
   const dialog = h("dialog", { class: "sheet", "aria-label": editing ? "Edit project" : "New project" },
     h("div", { class: "sheet-head" },
       h("h2", null, editing ? p.name : "New project"),
       editing ? h("span", { class: "mono muted" }, p.job_code) : null),
     leads, clients,
-    h("div", { class: "form-grid" }, Object.values(fields).map((f) => f.wrap)),
+    h("div", { class: "form-grid" },
+      Object.values(fields).map((f) => f.wrap),
+      codeField ? codeField.wrap : null),
     summary,
     h("div", { class: "sheet-foot" },
-      remove, h("span", { class: "spacer" }), cancel, save));
+      remove, fixCode, h("span", { class: "spacer" }), cancel, save));
 
   function clearErrors() {
     for (const f of Object.values(fields)) f.setError("");
@@ -116,7 +140,9 @@ export function projectForm({ project, reference, onSaved, onDeleted, canDelete 
       let unmatched = [];
       for (const [key, message] of Object.entries(detail)) {
         if (fields[key]) fields[key].setError(message);
-        else unmatched.push(`${key}: ${message}`);
+        else if (codeField && (key === "job_code" || key === "job_code_mode")) {
+          codeField.setError(message);
+        } else unmatched.push(`${key}: ${message}`);
       }
       // A field error with nowhere to render is worse than a general one:
       // the form looks fine and the save silently fails.
@@ -154,6 +180,10 @@ export function projectForm({ project, reference, onSaved, onDeleted, canDelete 
         return null;
       }
       payload[key] = cents;
+    }
+    if (codeField) {
+      payload.job_code_mode = codeMode.value;
+      if (codeMode.value === "existing") payload.job_code = codeInput.value.trim();
     }
     return payload;
   }
@@ -198,6 +228,26 @@ export function projectForm({ project, reference, onSaved, onDeleted, canDelete 
         showErrors(err);
       } finally {
         remove.disabled = false;
+      }
+    });
+  }
+
+  if (fixCode) {
+    fixCode.addEventListener("click", async () => {
+      const code = window.prompt(
+        `Correct the job code for ${p.name}.\nCurrently ${p.job_code}.`,
+        p.job_code);
+      if (!code || code.trim() === p.job_code) return;
+      const reason = window.prompt("Why is the current code wrong?");
+      if (!reason || !reason.trim()) return;
+      clearErrors();
+      try {
+        await api("POST", `/api/projects/${p.id}/job-code`,
+                  { job_code: code.trim(), reason: reason.trim() });
+        dialog.close();
+        onSaved(p, true, `Job code corrected to ${code.trim()}`);
+      } catch (err) {
+        showErrors(err);
       }
     });
   }

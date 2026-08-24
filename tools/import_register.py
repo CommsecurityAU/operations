@@ -23,9 +23,14 @@ import argparse
 import csv
 import re
 import sqlite3
+import os
 import sys
 import time
 from collections import defaultdict
+
+sys.path.insert(0, os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..")))
+from ops import money  # noqa: E402
 
 ENTITY_CODE = "CSSB"  # all current projects belong to Smart Buildings
 
@@ -42,26 +47,18 @@ class ImportError_(Exception):
 
 
 def cents(raw: str) -> int:
-    """'$1,234.56' -> 123456. Parses to cents exactly; never floats through."""
-    s = (raw or "").strip().replace("$", "").replace(",", "").replace(" ", "")
-    if s in ("", "-"):
-        return 0
-    neg = s.startswith("(") and s.endswith(")")
-    s = s.strip("()")
-    if neg or s.startswith("-"):
-        s = s.lstrip("-")
-        neg = True
-    if "." in s:
-        whole, frac = s.split(".", 1)
-        frac = (frac + "00")[:2]
-    else:
-        whole, frac = s, "00"
-    if not whole:
-        whole = "0"
-    if not whole.isdigit() or not frac.isdigit():
-        raise ImportError_(f"unparseable money value: {raw!r}")
-    value = int(whole) * 100 + int(frac)
-    return -value if neg else value
+    """Delegates to ops.money -- ONE rounding function, one place (ADR-15).
+
+    This used to parse inline and keep only the first two decimals, which
+    TRUNCATED anything finer. The FY27 register contains no sub-cent values
+    so nothing was lost here, but truncation drifts consistently downward
+    and would have bitten silently on the office-expense grids and on
+    anything arriving from Xero.
+    """
+    try:
+        return money.parse(raw)
+    except money.MoneyError as e:
+        raise ImportError_(str(e))
 
 
 def classify(code: str):

@@ -156,8 +156,17 @@ def _context(ca_file=None):
 class Oidc:
     def __init__(self, client_id, client_secret, redirect_uri,
                  hosted_domain, ca_file=None, timeout=10):
-        if not client_id or not client_secret or not redirect_uri:
-            raise AuthError("OIDC is not fully configured")
+        missing = [name for name, value in (
+            ("OIDC_CLIENT_ID", client_id),
+            ("OIDC_CLIENT_SECRET", client_secret),
+            ("OIDC_REDIRECT_URI", redirect_uri)) if not value]
+        if missing:
+            # Fail loud AND say what is wrong. "Not fully configured" tells
+            # whoever is reading the logs at 2am that something is missing
+            # and nothing about which thing.
+            raise AuthError(
+                "OIDC is not fully configured: "
+                + ", ".join(missing) + " not set")
         if not hosted_domain:
             raise AuthError("hosted_domain is required; without it any Google "
                             "account could sign in")

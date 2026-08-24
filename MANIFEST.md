@@ -1,0 +1,106 @@
+# MANIFEST — where every file goes
+
+**As at:** 24 August 2026 · 245 tests · pyright --strict clean
+
+The `repo/` folder mirrors `C:\Dev\operations` exactly. Copy it over the top
+and the paths land correctly — no guessing which `main` is which.
+
+Four filenames repeat across directories, which is where the confusion has
+been coming from:
+
+| Name | Correct path | What it is |
+|---|---|---|
+| `main.py` | `ops/main.py` | app entrypoint, routes, boot |
+| `main.js` | `ops/static/main.js` | browser shell wiring |
+| `test_main.py` | `tests/test_main.py` | tests for `ops/main.py` |
+| `app.js` | `ops/static/app.js` | the `h` / `api` / `fmt` primitives |
+
+---
+
+## Full tree
+
+```
+C:\Dev\operations\
+├── .dockerignore
+├── .gitattributes                     * text=auto eol=lf, *.ps1 crlf
+├── .gitignore                         (yours, unchanged)
+├── Dockerfile                         base pinned by digest
+├── Makefile                           Linux/CI dev loop
+├── dev.ps1                            Windows dev loop
+├── pyrightconfig.json                 strict, 4 named exclusions (ADR-26)
+│
+├── .github/workflows/
+│   └── ci.yml                         suite, gates, types, image, smoke, size
+│
+├── ops/                               THE APPLICATION
+│   ├── __init__.py                    empty, but required
+│   ├── auth.py                        OIDC, sessions, roles
+│   ├── backup.py                      snapshots, prune, scheduler
+│   ├── config.py                      env → Config, holds secret:// refs
+│   ├── db.py                          connections, migrations, health
+│   ├── http_util.py                   hardening, router, headers, CSRF
+│   ├── main.py                        boot order, routes, fingerprint
+│   ├── secrets.py                     secret:// resolver + 0600 store
+│   ├── migrations/
+│   │   └── 001_foundation.sql         STP-0 + STP-1 schema
+│   └── static/                        THE BROWSER CODE
+│       ├── index.html                 shell
+│       ├── tokens.css                 the ONLY colour/type/spacing literals
+│       ├── base.css                   layout, table, controls
+│       ├── app.js                     h / api / fmt / mount
+│       ├── datatable.js               sort, multi-select filter, paging
+│       ├── projects.js                the register screen
+│       └── main.js                    shell wiring, screen switch
+│
+├── tools/                             ONE-SHOT, never shipped in the image
+│   ├── import_register.py             workbook → database
+│   ├── restore.py                     verify + restore a snapshot
+│   ├── offbox_sync.sh                 host cron, backups/ + documents/ only
+│   └── dev_session.py                 local session cookie, dev only
+│
+└── tests/                             245 tests, ~4 s
+    ├── fixtures/
+    │   └── project_register_fy27.csv  the validated 59-row register
+    ├── secret_allowlist.txt           exact literals only, no wildcards
+    ├── test_auth.py                   claim checks, sessions, roles
+    ├── test_db.py                     connection split, runner, health
+    ├── test_gates.py                  deps, secrets, pin, migrations
+    ├── test_http_util.py              hardening over real sockets
+    ├── test_import_register.py        pinned FY27 figures
+    ├── test_js_guardrails.py          frontend rules
+    ├── test_main.py                   boot, static, STP-0 exit criteria
+    ├── test_restore.py                pre-flight and restore ordering
+    └── test_secrets.py                store, CLI, no-fallback
+```
+
+Not in the repo and not backed up: `data/` — database, snapshots, documents,
+secrets, TLS. `.gitignore` covers it.
+
+---
+
+## After copying
+
+```powershell
+cd C:\Dev\operations
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 245 OK
+.\dev.ps1 -Stale                                             # running == disk?
+```
+
+If the count is below 245, a test file did not land. If `-Stale` says STALE,
+restart the server — Python loads a module once, so a running process can be
+several edits behind the working tree while every test passes.
+
+---
+
+## Everyday commands
+
+```powershell
+.\dev.ps1              # serve on 5173
+.\dev.ps1 -Seed        # migrate + import the register
+.\dev.ps1 -Session     # mint a dev cookie
+.\dev.ps1 -Stale       # is the server current?
+```
+
+```
+make test      make check      make image      make session
+```

@@ -31,16 +31,78 @@ export function datatable(model) {
       })
     : null;
 
-  const filterEls = (model.filters || []).map((key) => {
+  // Multi-select. A native <select multiple> needs ctrl-click to add a
+  // second value, which nobody discovers, and shows no summary when closed.
+  // A button plus a checkbox panel says what is selected without opening.
+  function multiselect(key) {
     const col = model.columns.find((c) => c.key === key);
-    const values = [...new Set(model.rows.map((r) => r[key]).filter((v) => v !== null && v !== ""))].sort();
-    return h("select", {
-      "aria-label": col ? col.label : key,
-      onchange: (e) => { state.filters[key] = e.target.value; state.page = 0; paint(); },
-    },
-      h("option", { value: "" }, `All ${(col ? col.label : key).toLowerCase()}`),
-      values.map((v) => h("option", { value: v }, String(v))));
-  });
+    const label = col ? col.label : key;
+    const values = [...new Set(model.rows.map((r) => r[key])
+      .filter((v) => v !== null && v !== ""))].sort();
+    const chosen = new Set();
+    state.filters[key] = chosen;
+
+    const caption = document.createTextNode(`All ${label.toLowerCase()}`);
+    const button = h("button", {
+      type: "button", class: "filter-btn",
+      "aria-haspopup": "true", "aria-expanded": "false",
+      onclick: (e) => { e.stopPropagation(); toggle(); },
+    }, caption, h("span", { class: "caret" }, "\u25BE"));
+
+    const boxes = values.map((v) => {
+      const input = h("input", {
+        type: "checkbox", value: String(v),
+        onchange: (e) => {
+          if (e.target.checked) chosen.add(String(v)); else chosen.delete(String(v));
+          state.page = 0;
+          describe();
+          paint();
+        },
+      });
+      return h("label", { class: "filter-opt" }, input, h("span", null, String(v)));
+    });
+
+    const clear = h("button", {
+      type: "button", class: "filter-clear",
+      onclick: () => {
+        chosen.clear();
+        for (const b of boxes) b.firstChild.checked = false;
+        state.page = 0; describe(); paint();
+      },
+    }, "Clear");
+
+    const panel = h("div", { class: "filter-panel", role: "group",
+                             "aria-label": label, hidden: true },
+      boxes, clear);
+
+    function describe() {
+      // Name the values while they fit; a count once they do not. "3
+      // selected" with no names is a filter you have to open to understand.
+      const picked = [...chosen];
+      const text = picked.length === 0 ? `All ${label.toLowerCase()}`
+        : picked.length <= 2 ? `${label}: ${picked.join(", ")}`
+        : `${label}: ${picked.length} of ${values.length}`;
+      caption.nodeValue = text;
+      button.classList.toggle("is-active", picked.length > 0);
+    }
+
+    function toggle(force) {
+      const open = force === undefined ? panel.hidden : force;
+      panel.hidden = !open;
+      button.setAttribute("aria-expanded", String(open));
+    }
+
+    const wrap = h("div", { class: "filter" }, button, panel);
+    wrap.addEventListener("click", (e) => e.stopPropagation());
+    document.addEventListener("click", () => toggle(false));
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") toggle(false);
+    });
+    describe();
+    return wrap;
+  }
+
+  const filterEls = (model.filters || []).map(multiselect);
 
   const controls = h("div", { class: "controls" },
     search, filterEls,
@@ -62,8 +124,10 @@ export function datatable(model) {
 
   function visible() {
     let rows = model.rows;
-    for (const [key, value] of Object.entries(state.filters)) {
-      if (value) rows = rows.filter((r) => String(r[key]) === value);
+    for (const [key, chosen] of Object.entries(state.filters)) {
+      if (chosen && chosen.size) {
+        rows = rows.filter((r) => chosen.has(String(r[key])));
+      }
     }
     if (state.search && model.searchKeys) {
       rows = rows.filter((r) => model.searchKeys.some((k) =>
@@ -111,6 +175,10 @@ export function datatable(model) {
         : `${rows.length} of ${model.rows.length} rows`));
     prev.disabled = state.page === 0;
     next.disabled = state.page >= pages - 1;
+
+    // The FILTERED set, not the page. Totals that changed when you paged
+    // would be arithmetic about nothing.
+    if (model.onVisible) model.onVisible(rows);
   }
 
   paint();

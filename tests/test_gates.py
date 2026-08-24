@@ -155,6 +155,27 @@ class TestBaseImageIsPinned(unittest.TestCase):
                                 "CMD must use exec form")
 
 
+class TestDevRunnersAgree(unittest.TestCase):
+    """The Makefile and dev.ps1 do the same job on two platforms. If they
+    disagree about the port, one of them silently produces an OIDC redirect
+    URI that will not match what is registered."""
+
+    def test_default_port_matches(self):
+        with open(os.path.join(ROOT, "Makefile"), encoding="utf-8") as f:
+            mk = re.search(r"^PORT\s*\?=\s*(\d+)", f.read(), re.M)
+        with open(os.path.join(ROOT, "dev.ps1"), encoding="utf-8") as f:
+            ps = re.search(r"\[int\]\$Port\s*=\s*(\d+)", f.read())
+        self.assertIsNotNone(mk)
+        self.assertIsNotNone(ps)
+        self.assertEqual(mk.group(1), ps.group(1))
+
+    def test_dev_script_never_hardcodes_a_secret_value(self):
+        with open(os.path.join(ROOT, "dev.ps1"), encoding="utf-8") as f:
+            body = f.read()
+        self.assertIn("dev-not-a-real-secret", body)   # placeholder, by name
+        self.assertNotIn("GOCSPX", body)
+
+
 class TestMigrationsAreForwardOnly(unittest.TestCase):
     def test_numbered_and_unique(self):
         d = os.path.join(OPS, "migrations")

@@ -206,6 +206,65 @@ class TestCertExpiry(unittest.TestCase):
         self.assertIsNone(main_mod.check_cert_expiry(bad))
 
 
+class TestCodeFingerprint(unittest.TestCase):
+    """The staleness detector. Python loads a module once, so a running
+    server can be several edits behind the working tree while every test
+    passes and the browser disagrees."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        os.makedirs(os.path.join(self.dir, "migrations"))
+        with open(os.path.join(self.dir, "a.py"), "w") as f:
+            f.write("x = 1\n")
+        with open(os.path.join(self.dir, "migrations", "001.sql"), "w") as f:
+            f.write("CREATE TABLE t (a INTEGER) STRICT;\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_is_stable(self):
+        a = main_mod.code_fingerprint(self.dir)
+        self.assertEqual(a, main_mod.code_fingerprint(self.dir))
+        self.assertEqual(len(a), 12)
+
+    def test_changes_when_python_changes(self):
+        before = main_mod.code_fingerprint(self.dir)
+        with open(os.path.join(self.dir, "a.py"), "w") as f:
+            f.write("x = 2\n")
+        self.assertNotEqual(before, main_mod.code_fingerprint(self.dir))
+
+    def test_changes_when_sql_changes(self):
+        """A migration edit must move it too -- a stale runner is exactly as
+        confusing as stale handlers."""
+        before = main_mod.code_fingerprint(self.dir)
+        with open(os.path.join(self.dir, "migrations", "001.sql"), "a") as f:
+            f.write("-- edited\n")
+        self.assertNotEqual(before, main_mod.code_fingerprint(self.dir))
+
+    def test_changes_when_a_file_is_added(self):
+        before = main_mod.code_fingerprint(self.dir)
+        with open(os.path.join(self.dir, "b.py"), "w") as f:
+            f.write("y = 1\n")
+        self.assertNotEqual(before, main_mod.code_fingerprint(self.dir))
+
+    def test_ignores_pycache(self):
+        """Bytecode is derived, and it appears and disappears on its own."""
+        before = main_mod.code_fingerprint(self.dir)
+        cache = os.path.join(self.dir, "__pycache__")
+        os.makedirs(cache)
+        with open(os.path.join(cache, "a.cpython-312.pyc"), "wb") as f:
+            f.write(b"\x00compiled")
+        self.assertEqual(before, main_mod.code_fingerprint(self.dir))
+
+    def test_renaming_a_file_changes_it(self):
+        """Content alone is not enough: two files swapping names is a
+        different program."""
+        before = main_mod.code_fingerprint(self.dir)
+        os.rename(os.path.join(self.dir, "a.py"),
+                  os.path.join(self.dir, "z.py"))
+        self.assertNotEqual(before, main_mod.code_fingerprint(self.dir))
+
+
 class TestBootRefusals(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
@@ -334,6 +393,13 @@ class TestStp0ExitCriteria(Stp0Case):
         self.assertTrue(body["ok"])
         self.assertEqual(body["schema"]["missing"], [])
 
+    def test_healthz_reports_the_code_it_is_running(self):
+        """One request answers "is this server running what I just wrote".
+        Compare against `python -m ops.main --fingerprint`."""
+        _s, body = self.request("GET", "/healthz")
+        self.assertEqual(body["code"], main_mod.code_fingerprint())
+        self.assertEqual(len(body["code"]), 12)
+
     def test_login_redirects_to_google(self):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         c.request("GET", "/login")
@@ -412,6 +478,39 @@ class TestStp0ExitCriteria(Stp0Case):
                          VALUES (2,'Theirs','JN-2','Active',0)""")
         _, body = self.request("GET", "/api/projects", self.session_for(user))
         self.assertEqual([p["name"] for p in body["projects"]], ["Mine"])
+
+    def test_projects_payload_carries_type_and_client_for_filtering(self):
+        """Type is a live taxonomy and one of STP-5's rollup axes, so it has
+        to survive as data, not just as a column heading."""
+        user = auth.sign_in(self.db, {"sub": "s1", "email": "r@x", "name": "R"})
+        self.db.grant_role(user["id"], 1, "viewer", user["id"])
+        with self.db._tx() as c:
+            c.execute("INSERT INTO client (entity_id, name) VALUES (1,'Hines')")
+            c.execute("""INSERT INTO project (entity_id,name,job_code,status,
+                             type_id,client_id,project_lead,created_ts)
+                         VALUES (1,'Typed','JN-1','Active',
+                             (SELECT id FROM project_type WHERE code='ICN'),
+                             (SELECT id FROM client WHERE name='Hines'),
+                             'Joshua Koch',0)""")
+        _, body = self.request("GET", "/api/projects", self.session_for(user))
+        row = body["projects"][0]
+        self.assertEqual(row["type"], "ICN")
+        self.assertEqual(row["client"], "Hines")
+        self.assertEqual(row["project_lead"], "Joshua Koch")
+
+    def test_a_project_with_no_type_still_appears(self):
+        """LEFT JOIN, not INNER: an unmatched type is a data problem worth
+        seeing on screen. An inner join would hide it by dropping the row --
+        the register would silently be short and still look complete."""
+        user = auth.sign_in(self.db, {"sub": "s1", "email": "r@x", "name": "R"})
+        self.db.grant_role(user["id"], 1, "viewer", user["id"])
+        with self.db._tx() as c:
+            c.execute("""INSERT INTO project (entity_id,name,job_code,status,created_ts)
+                         VALUES (1,'Untyped','JN-2','Active',0)""")
+        _, body = self.request("GET", "/api/projects", self.session_for(user))
+        self.assertEqual(len(body["projects"]), 1)
+        self.assertEqual(body["projects"][0]["type"], "(untyped)")
+        self.assertEqual(body["projects"][0]["client"], "(no client)")
 
     def test_projects_payload_carries_the_flag_the_screen_renders(self):
         """projects.js reads needs_resolution to mark flagged rows. It comes

@@ -152,6 +152,19 @@ class TestOidcClaims(unittest.TestCase):
         c = self.o.claims(id_token())
         self.assertEqual(c["sub"], "108154")
 
+    def test_missing_config_names_the_missing_field(self):
+        """"Not fully configured" tells whoever is reading the logs that
+        something is missing and nothing about which thing."""
+        with self.assertRaises(AuthError) as e:
+            Oidc("", "s", "https://ops.x/cb", DOMAIN)
+        self.assertIn("OIDC_CLIENT_ID", str(e.exception))
+        with self.assertRaises(AuthError) as e:
+            Oidc(CLIENT_ID, "s", "", DOMAIN)
+        self.assertIn("OIDC_REDIRECT_URI", str(e.exception))
+        with self.assertRaises(AuthError) as e:
+            Oidc("", "", "", DOMAIN)
+        self.assertIn("OIDC_CLIENT_SECRET", str(e.exception))
+
     def test_hosted_domain_is_mandatory_at_construction(self):
         with self.assertRaises(AuthError):
             Oidc(CLIENT_ID, "s", "https://ops.x/cb", hosted_domain="")

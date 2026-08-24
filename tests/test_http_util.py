@@ -306,6 +306,13 @@ class TestAccessLog(ServerCase):
         try:
             self.get("/nope")          # 404 via HttpError
             self.get("/healthz")       # 200 via return value
+            # The access line is written in a `finally` AFTER the response
+            # goes out, so the client can return before the server has
+            # logged. Asserting immediately is a race that passes on a fast
+            # machine and fails in CI.
+            deadline = time.monotonic() + 5
+            while len(records) < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
         finally:
             logger.removeHandler(cap)
             logger.setLevel(old_level)

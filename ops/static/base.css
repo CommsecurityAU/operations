@@ -68,7 +68,10 @@ a:hover { text-decoration: underline; }
   gap: var(--u2);
   font-size: var(--fs-small);
   color: var(--t-1);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
+.wordmark, .nav { flex-shrink: 0; }
 .identity .roles {
   font-family: var(--font-data);
   font-size: var(--fs-micro);
@@ -76,6 +79,12 @@ a:hover { text-decoration: underline; }
 }
 
 .main { overflow: auto; padding: var(--u4); }
+
+/* A row wider than about 1200px stops being scannable: the eye has to
+ * travel across empty space from the project name to its figures. Cap the
+ * content and let the table scroll inside its own box, so a wide table can
+ * never push the page out and clip the top bar. */
+.content { max-width: 1200px; }
 
 .statusbar {
   display: flex;
@@ -142,7 +151,8 @@ a:hover { text-decoration: underline; }
   color: var(--t-0);
 }
 .figure.is-primary .value { color: var(--accent); }
-.figure.is-exception .value { color: var(--alarm); }
+.figure.is-attention .value { color: var(--warn); }   /* work to do */
+.figure.is-exception .value { color: var(--alarm); }  /* something is wrong */
 
 /* ---------------------------------------------------------- controls */
 .controls {
@@ -173,6 +183,65 @@ button:hover:not(:disabled) { background: var(--s-3); }
 button:disabled { color: var(--t-2); cursor: default; }
 button.primary { border-color: var(--accent-dim); color: var(--accent); }
 
+/* -------------------------------------------------- multi-select filter */
+.filter { position: relative; }
+
+.filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--u2);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* An active filter changes what every figure on the page means, so it is
+ * worth the accent -- this is the one control that can make a total lie
+ * about its own label. */
+.filter-btn.is-active {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+.filter-btn .caret { color: var(--t-2); }
+
+.filter-panel {
+  position: absolute;
+  z-index: 10;
+  top: calc(var(--h-control) + 2px);
+  left: 0;
+  min-width: 200px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--u2);
+  background: var(--s-2);
+  border: 1px solid var(--line-strong);
+}
+.filter-panel[hidden] { display: none; }
+
+.filter-opt {
+  display: flex;
+  align-items: center;
+  gap: var(--u2);
+  padding: var(--u) var(--u2);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.filter-opt:hover { background: var(--s-3); }
+.filter-opt input { accent-color: var(--accent); margin: 0; }
+
+.filter-clear {
+  width: 100%;
+  margin-top: var(--u2);
+  height: calc(var(--h-control) - 4px);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--t-1);
+}
+
+.figure[hidden] { display: none; }
+
 .spacer { margin-left: auto; }
 .count {
   font-family: var(--font-data);
@@ -181,7 +250,11 @@ button.primary { border-color: var(--accent-dim); color: var(--accent); }
 }
 
 /* ------------------------------------------------------------- table */
-.table-wrap { border: var(--border); background: var(--s-1); }
+.table-wrap {
+  border: var(--border);
+  background: var(--s-1);
+  overflow-x: auto;
+}
 
 table { width: 100%; border-collapse: collapse; }
 
@@ -204,6 +277,8 @@ thead th {
 thead th:hover { color: var(--t-0); }
 thead th .sort { color: var(--accent); margin-left: var(--u); }
 
+thead th.num, tbody td.num { width: 1%; }   /* shrink to content */
+
 tbody td {
   padding: var(--u2) var(--u3);
   border-bottom: 1px solid var(--line);
@@ -219,6 +294,13 @@ tbody tr:hover td { background: var(--s-3); }
 }
 .num { text-align: right; }
 .neg { color: var(--alarm); }
+
+/* Hierarchy by value, not hue. Contract and Invoiced Prior are context;
+ * Orders in Hand is the answer, so it is the only one at full strength. */
+td.secondary { color: var(--t-1); }
+td.primary   { color: var(--t-0); }
+/* A dash carries the same information as $0.00 and none of the ink. */
+td.zero      { color: var(--t-2); }
 
 .muted { color: var(--t-1); }
 

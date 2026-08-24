@@ -15,6 +15,7 @@ Anything that fails here exits non-zero. Non-zero = unhealthy = automatic
 rollback, so a misconfiguration self-reports instead of running degraded.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -40,6 +41,34 @@ MIME = {
 }
 MODULES = []          # §6. Registered here, explicitly. Empty at STP-0.
 CERT_WARN_DAYS = 30
+
+
+def code_fingerprint(package_dir=None):
+    """Short hash of the Python and SQL this process would load.
+
+    Python imports a module once and never re-reads it, so a running server
+    can be several edits behind the working tree while looking entirely
+    healthy -- every test passes, the browser disagrees, and nothing says
+    why. Comparing this value on disk against the one `/healthz` reports
+    answers "is the server running what I just wrote" in one request.
+
+    Deliberately NOT including static/: those files are read per request, so
+    they are never stale, and folding them in would make the fingerprint
+    change without the running code having changed.
+    """
+    root = package_dir or os.path.dirname(__file__)
+    digest = hashlib.sha256()
+    paths = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+        for name in filenames:
+            if name.endswith((".py", ".sql")):
+                paths.append(os.path.join(dirpath, name))
+    for path in sorted(paths):
+        digest.update(os.path.relpath(path, root).replace("\\", "/").encode())
+        with open(path, "rb") as f:
+            digest.update(f.read())
+    return digest.hexdigest()[:12]
 
 
 def setup_logging():
@@ -164,9 +193,15 @@ def build_router(db, oidc, key, cfg):
         _send_static(handler, name)
         return None
 
+    # Computed ONCE, at router construction, so it describes the code this
+    # process actually loaded -- not what is on disk right now.
+    running_code = code_fingerprint()
+
     @r.route("/healthz", role="public")
     def healthz(handler, user):
         report = db.health()
+        report["code"] = running_code
+        report["release"] = os.environ.get("OPS_RELEASE") or None
         return (200 if report["ok"] else 503), report
 
     @r.route("/login", role="public")
@@ -219,14 +254,22 @@ def build_router(db, oidc, key, cfg):
         # Column names come from the VIEW (project_id/project_name), not the
         # table. SELECT names are the JSON field names are the JS property
         # names (§5), so the aliases are the API contract.
+        # LEFT JOIN on type and client deliberately: a project whose type
+        # did not match the taxonomy is a data problem worth seeing on the
+        # screen, and an INNER JOIN would hide it by dropping the row.
         return 200, {"projects": db.query(
             f"""SELECT v.project_id   AS id,
                        v.project_name AS name,
                        v.job_code, v.status, v.purchase_order_cents,
                        v.invoiced_prior_cents, v.orders_in_hand_cents,
-                       p.needs_resolution
+                       p.needs_resolution,
+                       p.project_lead,
+                       COALESCE(pt.code, '(untyped)') AS type,
+                       COALESCE(c.name, '(no client)') AS client
                 FROM v_project_orders_in_hand v
                 JOIN project p ON p.id = v.project_id
+                LEFT JOIN project_type pt ON pt.id = p.type_id
+                LEFT JOIN client c ON c.id = p.client_id
                 WHERE v.entity_id IN ({marks})
                 ORDER BY v.project_name""", tuple(entity_ids))}
 
@@ -249,7 +292,9 @@ def make_auth_hook(db, key):
 def boot(cfg=None, env=None, serve=True):
     setup_logging()
     cfg = cfg or config_mod.from_env(env)
-    log.info(json.dumps({"event": "boot", "config": cfg.redacted()}))
+    log.info(json.dumps({"event": "boot", "code": code_fingerprint(),
+                         "release": os.environ.get("OPS_RELEASE") or None,
+                         "config": cfg.redacted()}))
 
     os.environ.setdefault("OPS_SECRETS_PATH", cfg.secrets_path)
     try:
@@ -311,6 +356,12 @@ def boot(cfg=None, env=None, serve=True):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if "--fingerprint" in argv:
+        # Prints the ON-DISK fingerprint. Compare with the `code` field from
+        # /healthz: if they differ, the server is stale, restart it.
+        print(code_fingerprint())
+        return 0
     try:
         boot()
     except SystemExit:

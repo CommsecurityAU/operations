@@ -58,6 +58,13 @@ export const fmt = {
     if (cents === null || cents === undefined) return "";
     return AUD.format(cents / 100);
   },
+  // Accounting convention, and the source workbook's own: a zero is a dash.
+  // A column of "$0.00" is ink carrying no information, and it competes with
+  // the figures that do.
+  moneyDash(cents) {
+    if (cents === null || cents === undefined) return "";
+    return cents === 0 ? "\u2013" : AUD.format(cents / 100);
+  },
   date(iso) {
     if (!iso) return "";
     const [y, m, d] = iso.slice(0, 10).split("-");

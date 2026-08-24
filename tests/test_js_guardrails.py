@@ -192,14 +192,34 @@ class TestAccessibilityFloor(unittest.TestCase):
     def test_html_declares_a_language(self):
         self.assertRegex(read(os.path.join(STATIC, "index.html")), r"<html[^>]+lang=")
 
-    def test_interactive_controls_are_labelled(self):
-        """A bare select or search box is unusable with a screen reader and
-        ambiguous with one."""
-        body = read(os.path.join(STATIC, "datatable.js"))
-        for control in ('h("select"', 'type: "search"'):
-            idx = body.index(control)
-            window = body[idx:idx + 400]
-            self.assertIn("aria-label", window, control)
+    def test_every_input_gets_an_accessible_name(self):
+        """A control with no accessible name is unusable with a screen
+        reader and ambiguous without one. Each `h("input"` must either
+        carry aria-label or sit inside an h("label", ...) wrapper."""
+        body = code_only(read(os.path.join(STATIC, "datatable.js")))
+        for m in re.finditer(r'h\("input"', body):
+            window = body[max(0, m.start() - 200):m.start() + 300]
+            self.assertTrue(
+                "aria-label" in window or 'h("label"' in window,
+                f"unlabelled input near offset {m.start()}")
+
+    def test_the_filter_popup_is_announced(self):
+        """A button that opens a panel has to say so, and say whether it is
+        currently open, or keyboard users get a button that appears to do
+        nothing."""
+        body = code_only(read(os.path.join(STATIC, "datatable.js")))
+        for attr in ('"aria-haspopup"', '"aria-expanded"',
+                     'role: "group"', '"aria-label"'):
+            self.assertIn(attr, body, f"filter popup missing {attr}")
+
+    def test_the_popup_closes_on_escape(self):
+        """Anything that opens over the page must close from the keyboard."""
+        body = code_only(read(os.path.join(STATIC, "datatable.js")))
+        self.assertIn('"Escape"', body)
+
+    def test_sortable_headers_announce_their_state(self):
+        body = code_only(read(os.path.join(STATIC, "datatable.js")))
+        self.assertIn('"aria-sort"', body)
 
 
 if __name__ == "__main__":

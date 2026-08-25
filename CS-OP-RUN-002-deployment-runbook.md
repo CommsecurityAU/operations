@@ -1,0 +1,271 @@
+# CS-OP-RUN-002 — Deployment runbook
+
+- **As at:** 25 August 2026
+- **Applies to:** CS-OP-ARCH-002 §13, CS-OP-STP-001 STP-0
+- **Status:** **DEFERRED 25 Aug 2026** — infrastructure not ready. Development
+  continues on STP-2; this runbook waits.
+
+---
+
+## Deferred, and what that costs
+
+The first deploy is on hold until the VM and supporting infrastructure are
+available. That is a resourcing decision, not a change of plan, and the
+runbook stands ready.
+
+Two things follow, worth holding in view rather than discovering later:
+
+1. **STP-001's standing rule is suspended, not met.** A phase ships and is
+   used in anger before the next begins. STP-2 is being built while STP-0
+   and STP-1 have been used by one person on one laptop. Every deployment
+   assumption therefore stays unverified while more code is stacked on it,
+   and the first deploy will surface its problems with a larger system
+   attached.
+2. **There is still no off-box backup.** The only data at risk today is a
+   dev database that can be rebuilt from the workbook, so the exposure is
+   near zero — but it stops being near zero the moment anyone enters real
+   invoicing data, which is what STP-2 makes possible.
+
+**Revisit when:** the VM exists, or STP-2 is ready to carry real data —
+whichever comes first. The second is the harder deadline.
+
+---
+
+## Four things this runbook does not know
+
+Marked **[SITE]** throughout. Fill them in as you go; the runbook is only
+finished once they are answered, and it should be corrected in place rather
+than remembered.
+
+1. **[SITE-VM]** — hostname, how you reach it, whether Docker is installed
+2. **[SITE-FLEET]** — how a release is created in the fleet manager and what
+   it expects
+3. **[SITE-CA]** — how a certificate for `ops.commsecurity.com.au` is
+   requested, and where it is installed
+4. **[SITE-BACKUP]** — what `/mnt/backup/cs-ops` actually is
+
+---
+
+## Before you start
+
+**Have these ready.** Each has bitten already or is known to be missing:
+
+- [ ] **OIDC client registered** — Cloud project inside the Workspace org,
+      consent screen **Internal**, redirect URIs
+      `https://ops.commsecurity.com.au/auth/callback` **and**
+      `http://localhost:5173/auth/callback`
+- [ ] **`OIDC_CLIENT_SECRET` in the company password manager.** The backup
+      deliberately excludes `secrets/`, so if it exists only on the volume,
+      a volume loss is unrecoverable without re-registering (CS-OP-RUN-001)
+- [ ] **Certificate and key as a matched pair** from the internal CA
+      **[SITE-CA]**
+- [ ] **A release tag pushed**, so the N-1 gate has a baseline
+
+**What is deliberately NOT ready, and should stay that way:** no
+job-number range is reserved, so allocation refuses (ADR-29). That is
+correct until a block is agreed with whoever runs iTrade.
+
+---
+
+## 1. The image
+
+CI has already built and pushed it. Confirm what you are deploying:
+
+```
+docker pull ghcr.io/commsecurityau/cs-ops:latest
+docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/commsecurityau/cs-ops:latest
+```
+
+The release must pin **that digest**, not `:latest` — a release means
+exactly those bytes forever (§13). The fleet manager rewrites `repo:tag` to
+a digest at release creation, so each image reference must sit on its own
+`image:` line.
+
+---
+
+## 2. The volume, before first boot
+
+`/data` is all state. Three things must exist before the app starts, and it
+refuses to start without them — deliberately, because a service that boots
+with a blank credential fails later and more confusingly.
+
+```
+ops-data/
+├── secrets/store.json     OIDC_CLIENT_SECRET       (step 2a)
+└── tls/
+    ├── server.crt         from the internal CA     [SITE-CA]
+    └── server.key         the matching key
+```
+
+### 2a. The secret
+
+Set from **stdin**, never argv — argv lands in shell history, the process
+list, and any `ps` a colleague runs while it is in flight.
+
+```
+docker run --rm -i -v ops-data:/data ghcr.io/commsecurityau/cs-ops:<digest> \
+    sh -c 'python3 -m ops.secrets set OIDC_CLIENT_SECRET' <<'EOF'
+<paste the secret>
+EOF
+```
+
+Confirm it is there without printing it:
+
+```
+docker run --rm -v ops-data:/data ghcr.io/commsecurityau/cs-ops:<digest> \
+    python3 -m ops.secrets list
+```
+
+### 2b. The certificate
+
+Copy the pair into `ops-data/tls/`. **The container runs as the non-root
+`ops` user**, so a key copied in as root with mode 600 is unreadable to it —
+the most likely way this deploy fails:
+
+```
+chown ops:ops server.crt server.key    # or the numeric uid inside the volume
+chmod 640 server.key
+```
+
+If either file is missing, unreadable, or the pair does not match, boot
+exits 2 and says which file and what to do. That is by design: non-zero =
+unhealthy = automatic rollback.
+
+---
+
+## 3. Release environment
+
+**References only — never values.** The manifest is signed, persisted and
+shipped, so a secret written here would live in three new places (§10).
+
+```
+OPS_DATA=/data
+OPS_TLS=on
+OPS_PORT=8443
+OIDC_CLIENT_ID=<the client id — not a secret>
+OIDC_REDIRECT_URI=https://ops.commsecurity.com.au/auth/callback
+OPS_HOSTED_DOMAIN=commsecurity.com.au
+OIDC_CLIENT_SECRET=secret://OIDC_CLIENT_SECRET
+OPS_RELEASE=<git sha>
+```
+
+`OPS_RELEASE` is optional and worth setting: `/healthz` reports it, so a
+human reading the endpoint sees a commit rather than a content hash.
+
+Named volume `ops-data:/data`. Staging directories are wiped on supersede;
+volumes persist.
+
+**[SITE-FLEET]** — how this is expressed as a release.
+
+---
+
+## 4. Deploy
+
+The agent verifies the signed manifest, pulls over the tunnel, stages, then
+health-gates on `/healthz`. On failure it rolls back locally, with no
+network and no operator.
+
+Watch for, in order:
+
+```
+{"event": "boot", "code": "<fingerprint>", "release": "<sha>", ...}
+{"event": "migrated", "versions": ["001_foundation.sql", "002_job_number_range.sql"]}
+{"event": "listening", "port": 8443, "tls": true}
+```
+
+**A missing `migrated` line on a first deploy means the volume already had a
+database.** Worth stopping to understand rather than pressing on.
+
+---
+
+## 5. Confirm
+
+```
+curl -s https://ops.commsecurity.com.au/healthz
+```
+
+Expect `{"ok": true, "schema": {...}, "integrity": "ok", "warnings": []}`
+plus `code` and `release`.
+
+Then the things `/healthz` cannot tell you:
+
+- [ ] **Sign in with a real Workspace account.** First sign-in provisions
+      `viewer` on **zero** entities, so the correct result is a 403 from the
+      project list, not an empty list
+- [ ] **Grant yourself a role** and confirm the register appears **without
+      signing in again** — roles resolve per request
+- [ ] **Grant `viewer` AND `operations`.** No role implies another, so an
+      admin who is not also a viewer cannot read the register. This has
+      caught us twice
+- [ ] **Import the register** if this volume is new:
+      `docker exec ops python3 tools/import_register.py --csv ... --db /data/ops.db`
+- [ ] **Orders in hand reads $3,520,041.73** at FY27 start
+
+---
+
+## 6. Off-box backup — not optional
+
+Currently **no off-box backup exists**. The 21 Aug rehearsal used a copy
+made by hand.
+
+```
+cp tools/offbox_sync.sh /opt/cs-ops/offbox_sync.sh
+chmod +x /opt/cs-ops/offbox_sync.sh
+crontab -e
+  17 * * * * /opt/cs-ops/offbox_sync.sh >> /var/log/cs-ops-backup.log 2>&1
+```
+
+Set `OPS_DATA` and `OPS_OFFBOX` in the script or the crontab environment.
+**[SITE-BACKUP]** — what `/mnt/backup/cs-ops` is.
+
+It copies `backups/` and `documents/` **only**. Never the live `ops.db`: a
+WAL database copied mid-transaction yields a `.db` and a `-wal` that
+disagree, and the copy fails only at restore.
+
+Run it once by hand and read the output — it warns if the newest off-box
+snapshot is over 3 hours old, because a sync that succeeds while the app has
+stopped snapshotting looks healthy and is not.
+
+---
+
+## 7. Then, and only then, close STP-0
+
+- [ ] **Restore rehearsal against the real deployment**, from the off-box
+      copy (CS-OP-RUN-001). The 21 Aug rehearsal was against a container in
+      a sandbox; this is the one that counts
+- [ ] Record the elapsed time against the 60 s budget
+- [ ] Note the date; next rehearsal one month on
+
+---
+
+## If the deploy fails
+
+**Rollback is automatic** — the agent health-gates and reverts the image
+without asking. What it does *not* do is roll back the database: migrations
+have already run, and the pre-migration snapshot exists but restoring it is
+a deliberate act that discards writes since.
+
+That asymmetry is why migrations are expand-only and why `/healthz` reports
+`applied ⊇ expected` rather than equality. A rolled-back release must be
+able to come up against a schema newer than itself.
+
+Common first-deploy failures, all of which now name themselves:
+
+| Symptom | Cause |
+|---|---|
+| exit 2, "no certificate at /data/tls/server.crt" | cert not placed |
+| exit 2, "cannot be read ... runs as the non-root 'ops' user" | key ownership |
+| exit 2, "do not go together" | cert and key from different issuances |
+| exit 2, "unresolved secret references" | `OIDC_CLIENT_SECRET` not set on the volume |
+| exit 2, "OIDC is not fully configured: ..." | a missing env var, named |
+| 403 after signing in | correct — grant yourself a role |
+| `/healthz` 503, `missing: [...]` | migrations did not run; read the boot log |
+
+---
+
+## After the first deploy
+
+Update this runbook **in place** with the four **[SITE]** answers and
+anything that surprised you. A runbook that was written before the thing was
+done, and never corrected afterwards, is a document that describes an
+imagined system.

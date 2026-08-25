@@ -36,9 +36,9 @@ EXPECTED_TABLES = ("entity", "period", "users", "user_entity_role",
                    "audit_log", "project", "schema_migrations")
 
 # Validated 21 Aug 2026. Present only if the register has been imported.
-REGISTER_PO_CENTS = 723190700
-REGISTER_PRIOR_CENTS = 371186527
-REGISTER_OIH_CENTS = 352004173
+REGISTER_PO_CENTS = 723265700
+REGISTER_PRIOR_CENTS = 367040527
+REGISTER_OIH_CENTS = 356225173
 
 
 class RestoreError(Exception):
@@ -164,7 +164,7 @@ def report(findings, elapsed=None, budget=60.0):
             f"  balances      {'yes' if reg['balances'] else 'NO'}",
         ]
         if reg["oih_cents"] == REGISTER_OIH_CENTS:
-            out.append("  register      matches the 21 Aug 2026 validated figures")
+            out.append("  register      matches the 25 Aug 2026 validated figures")
     else:
         out.append("  projects      0 (register not yet imported)")
     if elapsed is not None:

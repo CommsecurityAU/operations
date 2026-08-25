@@ -324,6 +324,50 @@ class TestAuthorise(unittest.TestCase):
         self.assertEqual(u["display_name"], f"x@{DOMAIN}")
 
 
+class TestFailuresCarryTheRightStatus(unittest.TestCase):
+    """401 means authenticate; 403 means you are authenticated and the answer
+    is no. An expired session used to return 403, because the status was
+    inferred by searching the message text."""
+
+    key = b"k" * 32
+
+    def test_authentication_failures_are_401(self):
+        for token in ("", "rubbish", "a.b"):
+            try:
+                verify_session(self.key, token)
+            except AuthError as e:
+                self.assertEqual(e.status, 401, token)
+            else:
+                self.fail(f"{token!r} was accepted")
+
+    def test_an_expired_session_is_401_not_403(self):
+        """The one that was wrong. A browser told 403 has no reason to send
+        the user to sign in again."""
+        t = mint_session(self.key, 7, 1, now=time.time() - 100, ttl=10)
+        with self.assertRaises(AuthError) as e:
+            verify_session(self.key, t)
+        self.assertEqual(e.exception.status, 401)
+
+    def test_a_bad_signature_is_401(self):
+        t = mint_session(b"x" * 32, 7, 1)
+        with self.assertRaises(AuthError) as e:
+            verify_session(self.key, t)
+        self.assertEqual(e.exception.status, 401)
+
+    def test_insufficient_role_is_403(self):
+        """Identity established, answer still no."""
+        with self.assertRaises(AuthError) as e:
+            has_role({"roles": []}, "not-a-role")
+        self.assertEqual(e.exception.status, 401)   # unknown role: a bug, not a denial
+
+    def test_the_status_is_not_inferred_from_the_message(self):
+        """Guard against the pattern coming back: no message-text matching."""
+        with open(os.path.join(ROOT, "ops", "main.py"), encoding="utf-8") as f:
+            body = f.read()
+        self.assertNotIn('"required" in str(e)', body)
+        self.assertIn("e.status", body)
+
+
 class TestRoles(unittest.TestCase):
     def user(self, *roles, entity=1):
         return {"roles": [{"entity_id": entity, "role": r} for r in roles]}

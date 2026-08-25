@@ -24,6 +24,7 @@ import sys
 import time
 
 from ops import auth, backup, config as config_mod
+from ops.modules import claims as claims_module
 from ops.modules import projects as projects_module
 from ops.modules import worklist as worklist_module
 from ops.db import Db
@@ -41,7 +42,7 @@ MIME = {
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
 }
-MODULES = [projects_module, worklist_module]   # §6. Explicit, in order.
+MODULES = [projects_module, worklist_module, claims_module]   # §6. Explicit, in order.
 CERT_WARN_DAYS = 30
 
 
@@ -137,6 +138,51 @@ def cert_not_after(pem_bytes):
             time.strftime("%b %d %H:%M:%S %Y GMT",
                           time.strptime(text, "%Y%m%d%H%M%SZ")))
     raise ValueError(f"unexpected time tag {not_after_tag:#x}")
+
+
+def verify_tls_material(cfg):
+    """Fail loudly, and say which file and what to do about it.
+
+    Without this, the three ways a first deploy goes wrong all surface as
+    `FileNotFoundError: [Errno 2] No such file or directory` with no path,
+    or as a raw OpenSSL string. Those are the messages someone reads at 2am
+    while the service is down, so they have to name the file and the fix.
+
+    Exits 2 rather than raising, matching the secrets path: non-zero =
+    unhealthy = automatic rollback, so a misconfigured deploy self-reports
+    instead of half-starting.
+    """
+    for label, path in (("certificate", cfg.tls_cert), ("private key", cfg.tls_key)):
+        if not os.path.exists(path):
+            log.error(
+                "TLS is on but there is no %s at %s. Issue one from the "
+                "internal CA and place it there, or set OPS_TLS=off for "
+                "local development.", label, path)
+            raise SystemExit(2)
+        try:
+            with open(path, "rb") as f:
+                f.read(1)
+        except PermissionError:
+            # The container runs as the non-root `ops` user. A key copied in
+            # as root with mode 600 is unreadable to it, and this is the
+            # most likely way a first deploy fails.
+            log.error(
+                "TLS %s at %s cannot be read. The app runs as the non-root "
+                "'ops' user, so the file must be readable by it: "
+                "chown ops:ops %s && chmod 640 %s", label, path, path, path)
+            raise SystemExit(2)
+
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cfg.tls_cert, cfg.tls_key)
+    except ssl.SSLError as e:
+        log.error(
+            "TLS certificate and key at %s do not go together (%s). They "
+            "are probably from different issuances -- reissue both from the "
+            "internal CA as a pair.", os.path.dirname(cfg.tls_cert), e)
+        raise SystemExit(2)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
 
 
 def check_cert_expiry(cert_path, warn_days=CERT_WARN_DAYS, now=None):
@@ -257,8 +303,10 @@ def make_auth_hook(db, key):
         try:
             return auth.authorise(db, key, handler, role)
         except auth.AuthError as e:
-            raise HttpError(401 if "required" in str(e) or "revoked" in str(e)
-                            else 403, str(e))
+            # The error states its own status. Inferring one from the message
+            # text returned 403 for an expired session, which tells a browser
+            # "not allowed" when the truth is "sign in again".
+            raise HttpError(e.status, str(e))
     return hook
 
 
@@ -297,7 +345,11 @@ def boot(cfg=None, env=None, serve=True):
     oidc = auth.Oidc(cfg.oidc_client_id, resolved["oidc_client_secret"],
                      cfg.oidc_redirect_uri, cfg.hosted_domain)
 
+    tls_context = None
     if cfg.tls:
+        # Before the server is built, so a bad certificate fails the deploy
+        # rather than a request.
+        tls_context = verify_tls_material(cfg)
         check_cert_expiry(cfg.tls_cert)
 
     scheduler = backup.Scheduler(db, cfg.backup_dir, cfg.backup_interval_s,
@@ -311,11 +363,8 @@ def boot(cfg=None, env=None, serve=True):
         limit=cfg.max_connections,
         read_timeout=cfg.read_timeout)
 
-    if cfg.tls:
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ctx.load_cert_chain(cfg.tls_cert, cfg.tls_key)
-        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+    if tls_context is not None:
+        server.socket = tls_context.wrap_socket(server.socket, server_side=True)
 
     log.info(json.dumps({"event": "listening", "port": cfg.effective_port,
                          "tls": cfg.tls}))

@@ -181,6 +181,27 @@ def load(conn, parsed):
              (r.get("Notes") or "").strip() or None, row_no, now))
         pid = cur.lastrowid
 
+        # EXPAND-WINDOW DUAL WRITE (migration 003). The legacy columns are
+        # still read by the previous release; the view now reads customer_po
+        # and claim_line. Writing only the columns produces a register worth
+        # nothing, which is exactly what the test suite caught.
+        if po:
+            cur.execute(
+                """INSERT INTO customer_po
+                   (entity_id, project_id, amount_cents, note, created_ts)
+                   VALUES (?,?,?,?,?)""",
+                (entity_id, pid, po, "migrated from the FY27 register", now))
+        if prior:
+            cur.execute(
+                """INSERT INTO claim_line
+                   (entity_id, project_id, customer_po_id, status,
+                    amount_cents, detail, claim_date, invoiced_date,
+                    is_opening_balance, created_ts)
+                   VALUES (?,?,NULL,'invoiced',?,?,?,?,1,?)""",
+                (entity_id, pid, prior,
+                 "opening balance: invoiced before FY27",
+                 "2026-06-30", "2026-06-30", now))
+
         if legacy:
             aliases.append((legacy, pid))
             cur.execute(

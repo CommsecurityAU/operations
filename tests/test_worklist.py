@@ -98,11 +98,14 @@ class Case(unittest.TestCase):
 
 class TestWorklistContents(Case):
     def test_the_real_register_produces_the_documented_worklist(self):
-        """Pinned to the validated source: 6 placeholders and 4 projects
-        sharing 2 codes."""
+        """Pinned to the validated source (25 Aug): 9 placeholders and 4
+        projects sharing 2 codes. The placeholder count grows as projects
+        are created without a number -- which is the design (ADR-28), so
+        this figure is expected to move and is pinned to catch it moving
+        for any other reason."""
         data = self.call("GET", "/api/worklist")[1]
-        self.assertEqual(data["open"], 10)
-        self.assertEqual(len(self.by_class("B")), 6)
+        self.assertEqual(data["open"], 13)
+        self.assertEqual(len(self.by_class("B")), 9)
         self.assertEqual(len(self.by_class("C")), 4)
         self.assertEqual(len(self.by_class("A")), 0)
 
@@ -115,8 +118,8 @@ class TestWorklistContents(Case):
         placeholder, not a shared code -- the screen must not present it as
         sharing, because the remedy is completely different."""
         tba = [i for i in self.by_class("B") if i["raw_code"] == "TBA"]
-        self.assertEqual(len(tba), 5)
-        self.assertEqual(tba[0]["shared_by"], 5)
+        self.assertEqual(len(tba), 8)
+        self.assertEqual(tba[0]["shared_by"], 8)
         with open(os.path.join(ROOT, "ops", "static", "worklist.js"),
                   encoding="utf-8") as f:
             ui = f.read()

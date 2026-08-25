@@ -175,6 +175,13 @@ requires a reserved block and refuses until one is agreed.
 - Keep test teardown strict (no `ignore_errors`); that failure is the leak
   detector. Run the suite on Windows periodically.
 
+**Budgets that are about to bite**
+
+- Per-page JS is **45.5 KB against the 50 KB limit** (§14) with the invoicing
+  grid added. One more screen of that size fails the gate. The answer is not
+  to raise the budget: it is that every screen currently loads every module,
+  so the fix is loading a screen's JS when the screen is opened.
+
 **Platform and library traps**
 
 - `sqlite3.executescript()` does not roll back on failure — it leaves the

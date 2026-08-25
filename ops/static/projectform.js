@@ -3,27 +3,7 @@
 // A native <dialog>: Escape closes it, focus is trapped, and the backdrop
 // comes free. Rebuilding that by hand is where accessibility quietly goes.
 
-import { api, fmt, h, mount } from "./app.js";
-
-const MONEY = /^-?\d*\.?\d{0,2}$/;
-
-// Money is entered in dollars and stored in cents. The conversion happens
-// HERE and nowhere else, and it goes through a string so 19.99 * 100 never
-// becomes 1998.9999999999998.
-function toCents(text) {
-  const clean = String(text ?? "").replace(/[$,\s]/g, "");
-  if (clean === "") return 0;
-  if (!MONEY.test(clean)) return null;
-  const neg = clean.startsWith("-");
-  const [whole, frac = ""] = clean.replace("-", "").split(".");
-  const cents = Number(whole || 0) * 100 + Number((frac + "00").slice(0, 2));
-  return neg ? -cents : cents;
-}
-
-function toDollars(cents) {
-  if (cents === null || cents === undefined) return "";
-  return (cents / 100).toFixed(2);
-}
+import { api, h, moneyInput, mount, toCents } from "./app.js";
 
 function field(label, control, hint) {
   const error = h("span", { class: "field-error" });
@@ -70,14 +50,15 @@ export function projectForm({ project, reference, onSaved, onDeleted, canDelete 
       "Every project has an owner"),
     project_no: field("Project no.",
       h("input", { type: "text", value: p.project_no || "" })),
+    // Shown as dollars, the same way the register shows them. A field that
+    // presents money differently from the screen it came from is where a
+    // typo hides.
     purchase_order_cents: field("Contract value",
-      h("input", { type: "text", inputmode: "decimal",
-                   value: toDollars(p.purchase_order_cents) }),
-      "Dollars"),
+      moneyInput(p.purchase_order_cents ?? 0, { "aria-label": "Contract value" }),
+      "Ex-GST"),
     invoiced_prior_cents: field("Invoiced prior",
-      h("input", { type: "text", inputmode: "decimal",
-                   value: toDollars(p.invoiced_prior_cents) }),
-      "Before FY27"),
+      moneyInput(p.invoiced_prior_cents ?? 0, { "aria-label": "Invoiced prior" }),
+      "Before FY27, ex-GST"),
     notes: field("Notes", h("textarea", { rows: 2 }, p.notes || "")),
   };
 

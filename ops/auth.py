@@ -45,7 +45,20 @@ COOKIE_NAME = "ops_session"
 
 
 class AuthError(Exception):
-    """Never carries a token, a secret, or a claim value."""
+    """Never carries a token, a secret, or a claim value.
+
+    Carries its own HTTP status. The caller used to infer one by searching
+    the message text for "required" or "revoked", which silently returned
+    403 for an expired session -- telling the browser "you are not allowed"
+    when the truth was "sign in again". Status is a property of the failure,
+    so the failure states it.
+    """
+
+    def __init__(self, message, status=401):
+        super().__init__(message)
+        # 401 authentication: we do not know who you are, or not any more.
+        # 403 authorisation:  we know exactly who you are, and no.
+        self.status = status
 
 
 # --------------------------------------------------------------- base64url
@@ -315,7 +328,9 @@ def authorise(db, key, handler, role, now=None):
         raise AuthError("session revoked")
     user["roles"] = db.roles_for(user["id"])
     if role != "any" and not has_role(user, role):
-        raise AuthError("insufficient role")
+        # The one genuinely 403 case in this module: identity is established
+        # and the answer is still no.
+        raise AuthError("insufficient role", status=403)
     return user
 
 

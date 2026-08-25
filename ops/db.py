@@ -19,6 +19,8 @@ import threading
 import time
 from typing import Any
 
+from ops import money
+
 # STRICT tables need 3.37; UPDATE ... RETURNING needs 3.35. Asserted at boot
 # rather than discovered at the first failing migration, and asserted again
 # inside the built image by CI (§13).
@@ -473,6 +475,37 @@ class Db:
                        target_type, target_id, detail)
                    VALUES (?,?,'project_create','project',?,?)""",
                 (now, actor_id, str(pid), f"{job_code} {fields['name']}"))
+            # EXPAND-WINDOW DUAL WRITE (§4, ADR-25).
+            #
+            # project.purchase_order_cents is still read by the previous
+            # release, so it keeps being written until the contraction
+            # migration removes it. But v_project_orders_in_hand now reads
+            # customer_po, so the PO row is what actually counts. Writing
+            # only one of the two is how a project ends up worth nothing.
+            #
+            # This is temporary and ugly on purpose. It disappears at
+            # contraction, one release after 003 has been stable.
+            po_cents = fields.get("purchase_order_cents", 0)
+            if po_cents:
+                c.execute(
+                    """INSERT INTO customer_po
+                       (entity_id, project_id, po_number, amount_cents,
+                        note, created_by, created_ts)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (fields["entity_id"], pid, fields.get("po_number"),
+                     po_cents, fields.get("po_note"), actor_id, now))
+            prior_cents = fields.get("invoiced_prior_cents", 0)
+            if prior_cents:
+                c.execute(
+                    """INSERT INTO claim_line
+                       (entity_id, project_id, customer_po_id, status,
+                        amount_cents, detail, claim_date, invoiced_date,
+                        is_opening_balance, created_by, created_ts)
+                       VALUES (?,?,NULL,'invoiced',?,?,?,?,1,?,?)""",
+                    (fields["entity_id"], pid, prior_cents,
+                     "opening balance: invoiced before FY27",
+                     "2026-06-30", "2026-06-30", actor_id, now))
+
             # A project created WITHOUT a number is not an error -- it is a
             # decision deferred. Put it on the worklist so the deferral is
             # visible instead of being a blank cell nobody revisits.
@@ -527,9 +560,341 @@ class Db:
                        VALUES (?,?,'project_update','project',?,?)""",
                     (now, actor_id, str(project_id),
                      f"{key}: {old_value!r} -> {new_value!r}"))
+            # Same dual write. Until the PO editor exists (STP-2), a change
+            # to the legacy column has to move the PO it was migrated into,
+            # or the register and the view disagree about the same project.
+            if "purchase_order_cents" in applied:
+                _old_v, new_v = applied["purchase_order_cents"]
+                po = c.execute(
+                    """SELECT id, amount_cents FROM customer_po
+                       WHERE project_id = ? ORDER BY id LIMIT 1""",
+                    (project_id,)).fetchone()
+                if po is None:
+                    c.execute(
+                        """INSERT INTO customer_po
+                           (entity_id, project_id, amount_cents, note,
+                            created_by, created_ts)
+                           SELECT entity_id, id, ?, 'created by contract edit',
+                                  ?, ?
+                           FROM project WHERE id = ?""",
+                        (new_v, actor_id, now, project_id))
+                else:
+                    c.execute(
+                        "UPDATE customer_po SET amount_cents = ? WHERE id = ?",
+                        (new_v, po["id"]))
+                    c.execute(
+                        """INSERT INTO customer_po_revision
+                           (customer_po_id, field, old_value, new_value,
+                            reason, changed_by, changed_ts)
+                           VALUES (?,'amount_cents',?,?,?,?,?)""",
+                        (po["id"], str(po["amount_cents"]), str(new_v),
+                         "contract value edited on the project", actor_id, now))
             row = c.execute(
                 "SELECT * FROM project WHERE id = ?", (project_id,)).fetchone()
             return {"project": dict(row), "changed": sorted(applied)}
+
+    # ------------------------------------------------------- claim lines
+    def create_claim_line(self, fields, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            cur = c.execute(
+                """INSERT INTO claim_line
+                   (entity_id, project_id, customer_po_id, period_id, status,
+                    amount_cents, percent_bp, phase, task, detail, reference,
+                    claim_date, retention_cents, is_retention_release,
+                    created_by, created_ts)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (fields["entity_id"], fields["project_id"],
+                 fields.get("customer_po_id"), fields.get("period_id"),
+                 fields.get("status", "forecast"), fields["amount_cents"],
+                 fields.get("percent_bp"), fields.get("phase"),
+                 fields.get("task"), fields.get("detail"),
+                 fields.get("reference"), fields.get("claim_date"),
+                 0, fields.get("is_retention_release", 0), actor_id, now))
+            cid = cur.lastrowid
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'claim_create','claim_line',?,?)""",
+                (now, actor_id, str(cid),
+                 f"{fields.get('status','forecast')} {fields['amount_cents']}c"))
+            return dict(c.execute("SELECT * FROM claim_line WHERE id = ?",
+                                  (cid,)).fetchone())
+
+    CLAIM_MUTABLE = ("customer_po_id", "period_id", "amount_cents",
+                     "percent_bp", "phase", "task", "detail", "reference",
+                     "claim_date", "approved_date", "invoice_number",
+                     "invoiced_date", "paid_date")
+
+    def update_claim_line(self, claim_id, changes, actor_id, reason=None):
+        """Field-level, with every money- or timing-bearing change recorded.
+
+        A change of `period_id` is SLIPPAGE and is recorded as such. Silently
+        overwriting the month makes a forecast look like it was always right,
+        which is precisely the number forecasting accuracy is measured
+        against.
+        """
+        now = int(time.time())
+        with self._tx() as c:
+            before = c.execute("SELECT * FROM claim_line WHERE id = ?",
+                               (claim_id,)).fetchone()
+            if before is None:
+                return None
+            applied = {}
+            for key in self.CLAIM_MUTABLE:
+                if key not in changes:
+                    continue
+                old_value, new_value = before[key], changes[key]
+                if old_value == new_value:
+                    continue
+                c.execute(f"UPDATE claim_line SET {key} = ? WHERE id = ?",
+                          (new_value, claim_id))
+                applied[key] = (old_value, new_value)
+                c.execute(
+                    """INSERT INTO claim_line_revision
+                       (claim_line_id, field, old_value, new_value, reason,
+                        changed_by, changed_ts)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (claim_id, key,
+                     None if old_value is None else str(old_value),
+                     None if new_value is None else str(new_value),
+                     reason, actor_id, now))
+            return {"claim": dict(c.execute(
+                "SELECT * FROM claim_line WHERE id = ?", (claim_id,)).fetchone()),
+                "changed": sorted(applied)}
+
+    def transition_claim(self, claim_id, to_status, fields, reason, actor_id):
+        """Move a claim along its lifecycle, recording the move.
+
+        Retention is RECOMPUTED at the moment of invoicing, not carried from
+        creation. Two forecasts each computed against the same remaining
+        capacity would both take the full 10%, and together exceed the cap
+        the moment both were invoiced. Only invoicing withholds anything, so
+        that is where the figure is fixed.
+        """
+        now = int(time.time())
+        with self._tx() as c:
+            before = c.execute("SELECT * FROM claim_line WHERE id = ?",
+                               (claim_id,)).fetchone()
+            if before is None:
+                return None
+            from_status = before["status"]
+            sets, params = ["status = ?"], [to_status]
+            for key in ("approved_date", "invoice_number", "invoiced_date",
+                        "paid_date"):
+                if key in fields:
+                    sets.append(f"{key} = ?")
+                    params.append(fields[key])
+
+            retention = before["retention_cents"]
+            if to_status == "invoiced" and not before["is_retention_release"]:
+                retention = self.retention_for_claim(
+                    before["customer_po_id"], before["amount_cents"],
+                    exclude_claim_id=claim_id) if before["customer_po_id"] else 0
+                sets.append("retention_cents = ?")
+                params.append(retention)
+            elif to_status in ("forecast", "due", "approved", "cancelled"):
+                # Stepping back out of invoiced releases the withholding: the
+                # customer is not holding money against an invoice that no
+                # longer exists.
+                sets.append("retention_cents = ?")
+                params.append(0)
+                retention = 0
+
+            params.append(claim_id)
+            c.execute(f"UPDATE claim_line SET {', '.join(sets)} WHERE id = ?",
+                      params)
+            c.execute(
+                """INSERT INTO claim_line_revision
+                   (claim_line_id, field, old_value, new_value, reason,
+                    changed_by, changed_ts)
+                   VALUES (?,'status',?,?,?,?,?)""",
+                (claim_id, from_status, to_status, reason, actor_id, now))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'claim_status','claim_line',?,?)""",
+                (now, actor_id, str(claim_id),
+                 f"{from_status} -> {to_status}"
+                 + (f": {reason}" if reason else "")))
+            return {"claim": dict(c.execute(
+                "SELECT * FROM claim_line WHERE id = ?", (claim_id,)).fetchone()),
+                "from": from_status, "to": to_status,
+                "retention_cents": retention}
+
+    # --------------------------------------------------------- schedules
+    STEP_MONTHS = {"monthly": 1, "quarterly": 3, "annual": 12}
+
+    def create_schedule(self, fields, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            cur = c.execute(
+                """INSERT INTO claim_schedule
+                   (entity_id, project_id, customer_po_id, description,
+                    amount_cents, frequency, start_period_id, end_period_id,
+                    renewal_date, renewal_notice_days, renewal_note,
+                    created_by, created_ts)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (fields["entity_id"], fields["project_id"],
+                 fields["customer_po_id"], fields["description"],
+                 fields["amount_cents"], fields["frequency"],
+                 fields["start_period_id"], fields["end_period_id"],
+                 fields.get("renewal_date"),
+                 fields.get("renewal_notice_days", 60),
+                 fields.get("renewal_note"), actor_id, now))
+            sid = cur.lastrowid
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'schedule_create','claim_schedule',?,?)""",
+                (now, actor_id, str(sid),
+                 f"{fields['description']} {fields['frequency']} "
+                 f"{fields['amount_cents']}c"))
+            return dict(c.execute("SELECT * FROM claim_schedule WHERE id = ?",
+                                  (sid,)).fetchone())
+
+    def schedule_periods(self, schedule_id):
+        """The periods this schedule covers, stepping by its frequency.
+
+        Quarterly means every third month FROM THE START, not calendar
+        quarters -- a maintenance agreement beginning in August bills in
+        August, November, February, May, and aligning it to Jan/Apr/Jul/Oct
+        would invent a billing date nobody agreed to.
+        """
+        s = self.query_one("SELECT * FROM claim_schedule WHERE id = ?",
+                           (schedule_id,))
+        if s is None:
+            return []
+        step = self.STEP_MONTHS[s["frequency"]]
+        rows = self.query(
+            """SELECT p.id, p.label, p.month_start FROM period p
+               WHERE p.month_start >= (SELECT month_start FROM period WHERE id = ?)
+                 AND p.month_start <= (SELECT month_start FROM period WHERE id = ?)
+               ORDER BY p.month_start""",
+            (s["start_period_id"], s["end_period_id"]))
+        return rows[::step]
+
+    def generate_schedule_claims(self, schedule_id, actor_id):
+        """Create the claims this schedule implies. IDEMPOTENT.
+
+        A unique index on (schedule_id, period_id) means running it twice
+        cannot produce a second November, so it is safe to run on a timer, on
+        demand, or by accident.
+
+        Generated claims are ordinary claims: individually editable, able to
+        slip, invoiced like anything else. Only their origin is recorded.
+        """
+        now = int(time.time())
+        s = self.query_one("SELECT * FROM claim_schedule WHERE id = ?",
+                           (schedule_id,))
+        if s is None or not s["is_active"]:
+            return {"created": 0, "existing": 0, "periods": []}
+        created, existing, made = 0, 0, []
+        for period in self.schedule_periods(schedule_id):
+            already = self.query_one(
+                "SELECT id FROM claim_line WHERE schedule_id = ? AND period_id = ?",
+                (schedule_id, period["id"]))
+            if already:
+                existing += 1
+                continue
+            with self._tx() as c:
+                c.execute(
+                    """INSERT INTO claim_line
+                       (entity_id, project_id, customer_po_id, period_id,
+                        status, amount_cents, detail, schedule_id,
+                        created_by, created_ts)
+                       VALUES (?,?,?,?,'forecast',?,?,?,?,?)""",
+                    (s["entity_id"], s["project_id"], s["customer_po_id"],
+                     period["id"], s["amount_cents"], s["description"],
+                     schedule_id, actor_id, now))
+            created += 1
+            made.append(period["label"])
+        if created:
+            with self._tx() as c:
+                c.execute(
+                    """INSERT INTO audit_log (ts, actor_user_id, action,
+                           target_type, target_id, detail)
+                       VALUES (?,?,'schedule_generate','claim_schedule',?,?)""",
+                    (now, actor_id, str(schedule_id),
+                     f"{created} claims: {', '.join(made)}"))
+        return {"created": created, "existing": existing, "periods": made}
+
+    def upcoming_renewals(self, entity_ids=None, within_days=None):
+        """Renewals that need attention, soonest first.
+
+        Overdue ones sort first and stay in the list. A maintenance
+        agreement that lapsed last month is more urgent than one due next
+        month, and dropping it off the end is how revenue quietly stops.
+        """
+        sql = "SELECT * FROM v_upcoming_renewals WHERE renewal_date IS NOT NULL"
+        params: list[Any] = []
+        if entity_ids:
+            sql += f" AND entity_id IN ({','.join('?' * len(entity_ids))})"
+            params.extend(entity_ids)
+        if within_days is not None:
+            sql += " AND days_until <= ?"
+            params.append(within_days)
+        return self.query(sql + " ORDER BY days_until", tuple(params))
+
+    # --------------------------------------------------------- retention
+    def retention_for_claim(self, customer_po_id, amount_cents,
+                            exclude_claim_id=None):
+        """How much this claim would have withheld from it.
+
+        `min(rate x amount, remaining capacity)` -- the second term is what
+        makes the cap bite. On a $700k PO at 10% capped at 2.5%, the first
+        claim of $100k withholds $10,000, the second withholds only $7,500
+        because that reaches $17,500, and the third withholds nothing.
+
+        Rounding goes through ops.money, so the mode is ADR-15's and not
+        whatever the hardware did.
+        """
+        po = self.query_one(
+            "SELECT * FROM v_po_retention_position WHERE customer_po_id = ?",
+            (customer_po_id,))
+        if po is None or not po["retention_applies"] or not po["rate_bp"]:
+            return 0
+        remaining = po["remaining_to_withhold_cents"]
+        if exclude_claim_id is not None:
+            # Re-costing an existing claim: its own withholding is already
+            # counted in `withheld_cents`, so give it back before capping,
+            # or an edit silently shrinks its own capacity.
+            own = self.scalar(
+                "SELECT retention_cents FROM claim_line WHERE id = ?",
+                (exclude_claim_id,)) or 0
+            remaining += own
+        want = money.apply_rate(amount_cents, po["rate_bp"])
+        return max(0, min(want, remaining))
+
+    def retention_release_schedule(self, customer_po_id):
+        """What is held, and when it becomes claimable.
+
+        `split` releases part at practical completion and the rest at DLP
+        end; `dlp` releases everything at DLP end. A date that is not set
+        yet returns None rather than a guess -- an unknown release date is
+        information, and inventing one puts a number in a cash forecast that
+        nobody can defend.
+        """
+        po = self.query_one(
+            """SELECT r.*, p.practical_completion_date, p.dlp_end_date
+               FROM v_po_retention_position r
+               JOIN project p ON p.id = r.project_id
+               WHERE r.customer_po_id = ?""", (customer_po_id,))
+        if po is None or not po["retention_applies"]:
+            return []
+        held = po["held_cents"]
+        if held <= 0:
+            return []
+        if po["release_policy"] == "split" and po["release_split_bp"]:
+            at_pc = money.apply_rate(held, po["release_split_bp"])
+            return [
+                {"stage": "practical_completion", "amount_cents": at_pc,
+                 "due_date": po["practical_completion_date"]},
+                {"stage": "dlp_end", "amount_cents": held - at_pc,
+                 "due_date": po["dlp_end_date"]},
+            ]
+        return [{"stage": "dlp_end", "amount_cents": held,
+                 "due_date": po["dlp_end_date"]}]
 
     # ---------------------------------------------------------- worklist
     # Codes that are not codes. Aliasing one would map five projects to

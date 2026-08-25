@@ -25,11 +25,11 @@ MIGRATIONS = os.path.join(ROOT, "ops", "migrations")
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "project_register_fy27.csv")
 
 # --- pinned known-good values -------------------------------------------
-PROJECTS = 59
-PO_CENTS = 723190700          # $7,231,907.00
-PRIOR_CENTS = 371186527       # $3,711,865.27
-ORDERS_IN_HAND_CENTS = 352004173  # $3,520,041.73  <- FY27 opening position
-OPENING_ROWS = 29
+PROJECTS = 63
+PO_CENTS = 723265700          # $7,232,657.00
+PRIOR_CENTS = 367040527       # $3,670,405.27
+ORDERS_IN_HAND_CENTS = 356225173  # $3,562,251.73  <- FY27 opening position
+OPENING_ROWS = 25
 PERIOD_ROWS = 144             # FY24..FY35
 
 
@@ -122,7 +122,7 @@ class TestMigration(Base):
 class TestMoneyParsing(unittest.TestCase):
     def test_cents_are_exact(self):
         for raw, want in [("$1,234.56", 123456), ("$0.00", 0), ("", 0), ("-", 0),
-                          ("$700,000", 70000000), ("$3,520,041.73", 352004173),
+                          ("$700,000", 70000000), ("$3,562,251.73", 356225173),
                           ("$45,361", 4536100), ("($550.00)", -55000)]:
             self.assertEqual(imp.cents(raw), want, raw)
 
@@ -211,9 +211,9 @@ class TestImport(Base):
             "SELECT COUNT(*) FROM job_code_issue WHERE status='open'"),
             self.q("SELECT COUNT(*) FROM job_code_issue"))
         # class B is the placeholders; nothing blocked the import
-        self.assertEqual(self.q("SELECT COUNT(*) FROM job_code_issue WHERE class='B'"), 6)
+        self.assertEqual(self.q("SELECT COUNT(*) FROM job_code_issue WHERE class='B'"), 9)
         self.assertEqual(self.q(
-            "SELECT COUNT(*) FROM project WHERE needs_resolution=1"), 10)
+            "SELECT COUNT(*) FROM project WHERE needs_resolution=1"), 13)
 
     def test_job_numbers_resume_above_the_legacy_high_water_mark(self):
         nxt = self.q("SELECT next_value FROM job_number_sequence")

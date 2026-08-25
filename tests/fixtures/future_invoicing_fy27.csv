@@ -1,0 +1,217 @@
+Project,Job Code,Type,Purchase Order,Phase,Task,%,Invoice Amount,EOM Cycle,Customer Approved,Invoice Number,Payment Receipted Date,Detail,Reference,Month,Year,Contract Value,Client
+PDNSW - Maitland Key Cabinet,JN-6792,NSW,,,,,"$53,500.00",Sep-26,,,,,,3,FY27,"$53,500.00",PDNSW
+720 Bourke - IBP,JN-5749,IBP,TBA,Commissioning & Site Acceptance Testing,Commissioning & Testing All Systems,20.00%,"$11,916.60",Oct-26,,,,,720 Bourke St - Progress Claim,4,FY27,"$86,064.33",Knight Frank
+40 Upper Heidelberg Road Ivanhoe - EMS,JN-6337,EMS,,Progress Claim,Commissioning and Complete,,"$3,726.00",Sep-26,,,,,,3,FY27,"$6,726.00",Meridian Concepts Group
+720 Bourke - IBP,JN-5749,IBP,TBA,Commissioning & Site Acceptance Testing,Client Training,20.00%,"$11,916.60",Sep-26,,,,,720 Bourke St - Progress Claim,3,FY27,"$86,064.33",Knight Frank
+The Lindrum - IBP,JN-4407,IBP,,Progress Claim - Sep-26,"Cloud Licenses (Kode OS) 25%, $17,225
+Project Management 10%, $3,500
+Configuration 10% $3,785
+Commissioning 10% $3,300",,"$27,810.00",Sep-26,,,,,The Lindrum Progress Claim,3,FY27,"$198,357.50",Kapitol Group
+200 Victoria - IBP,JN-6072,IBP,Issue to JAG only,Commissioning & Site Acceptance Testing,Commissioning & Testing 2/3 Systems,20.00%,"$17,700.00",Sep-26,,,,,200 Vic Pde - Progress Claim,3,FY27,"$206,500.00",ARAVest
+200 Victoria - IBP,JN-6072,IBP,Issue to JAG only,Commissioning & Site Acceptance Testing,Commissioning & Testing All Systems,20.00%,"$17,700.00",Sep-26,,,,,200 Vic Pde - Progress Claim,3,FY27,"$206,500.00",ARAVest
+200 Victoria - IBP,JN-6072,IBP,Issue to JAG only,Commissioning & Site Acceptance Testing,SAT,20.00%,"$17,700.00",Sep-26,,,,,200 Vic Pde - Progress Claim,3,FY27,"$206,500.00",ARAVest
+200 Victoria - IBP,JN-6072,IBP,Issue to JAG only,Commissioning & Site Acceptance Testing,Client Training,20.00%,"$17,700.00",Sep-26,,,,,200 Vic Pde - Progress Claim,3,FY27,"$206,500.00",ARAVest
+570 Little Bourke St ICN,JN-692,ICN,,Progress Claim #3,"Project Management, 10% $3,145",,"$3,145.00",Sep-26,,,,,,3,FY27,"$345,000.00",Hickory
+570 Little Bourke St ICN,JN-692,ICN,,Progress Claim #4,"Project Management, 10% $3,145",,"$3,145.00",Oct-26,,,,,,4,FY27,"$345,000.00",Hickory
+570 Little Bourke St ICN,JN-692,ICN,,Progress Claim #5,"Project Management, 10% $3,145",,"$3,145.00",Nov-26,,,,,,5,FY27,"$345,000.00",Hickory
+570 Little Bourke St ICN,JN-692,ICN,,Progress Claim #6,"Project Management, 10% $3,145
+Design / Engineering, 26% $8,775",,"$11,920.00",Dec-26,,,,,,6,FY27,"$345,000.00",Hickory
+570 Little Bourke St ICN,JN-692,ICN,,Progress Claim #7,"Project Management, 10% $3,145",,"$3,145.00",Jan-27,,,,,,7,FY27,"$345,000.00",Hickory
+570 Little Bourke St ICN,JN-692,ICN,,Progress Claim #8,"Equipment, 50% $120,000
+Project Management, 10% $3,145
+Configuration, 50% $8,065
+Installation, 50% $11,250
+Commissioning, 50% $8,335",,"$150,795.00",Feb-27,,,,,,8,FY27,"$345,000.00",Hickory
+570 Little Bourke St ICN,JN-692,ICN,,Progress Claim #9,"Project Management, 10% $3,145",,"$3,145.00",Mar-27,,,,,,9,FY27,"$345,000.00",Hickory
+570 Little Bourke St ICN,JN-692,ICN,,Progress Claim #10,"Equipment, 50% $120,000
+Project Management, 10% $3,145
+Configuration, 50% $8,065
+Installation, 50% $11,250
+Commissioning, 50% $8,335",,"$150,795.00",Apr-27,,,,,,10,FY27,"$345,000.00",Hickory
+570 Little Bourke St ICN,JN-692,ICN,,Progress Claim #11,"Project Management, 10% $3,145
+As Builts / Training, 100% $5,000
+DLP, 100% $4,500",,"$12,620.00",May-27,,,,,,11,FY27,"$345,000.00",Hickory
+11-19 Whitehall Rd - Assembe - EMS,JN-5830,EMS,,Progress Claim,Commissioning & Testing of Systems,5.00%,"$3,160.00",Sep-26,,,,,11-19 Whitehall Street - Progress Claim,3,FY27,"$44,240.00",WHITEHALL ASSEMBLE - VAST
+The Lindrum - ICN,JN-4407,ICN,PayApps,,"Equipment 11.25% $13,500
+Equipment - WiFi, 30% $3,000
+Equipment - Virtual Server, 30% $10,500 
+Project Management 10%, $2,184.0",,"$15,684.00",Sep-26,,,,,The Lindrum Progress Claim,3,FY27,"$185,578.90",Kapitol
+223-231 Johnston St - EMS,JN-6338,EMS,,Progress Claim,Installation on Site and KODE OS established,,"$7,500.00",Sep-26,,,,,,3,FY27,"$26,700.00",Meridian Concepts Group
+The Lindrum - IBP,JN-4407,IBP,,Progress Claim - Oct-26,"Cloud Licenses (Kode OS) 25%, $17,225
+Project Management 10%, $3,500
+Configuration 10% $3,785
+Installation 25% $1,875
+Commissioning 10% $3,300",,"$32,985.00",Oct-26,,,,,The Lindrum Progress Claim,4,FY27,"$198,357.50",Kapitol Group
+88 Jolimont - Maintenance,JN-5416,IBP,,Remaining SLA,,,"$25,680.00",Oct-26,,,,,,4,FY27,"$25,680.00",CoBild
+11-19 Whitehall Rd - Assembe - EMS,JN-5830,EMS,,Progress Claim,SAT,5.00%,"$3,160.00",Oct-26,,,,,11-19 Whitehall Street - Progress Claim,4,FY27,"$44,240.00",WHITEHALL ASSEMBLE - VAST
+The Lindrum - ICN,JN-4407,ICN,PayApps,,"Equipment 80% $96,000
+Consumables 100% $1,500
+Project Management 10%, $2,184.0",,"$3,684.00",Nov-26,,,,,The Lindrum Progress Claim,5,FY27,"$185,578.90",Kapitol
+223-231 Johnston St - EMS,JN-6338,EMS,,Progress Claim,Commissioning and Complete,,"$11,700.00",Oct-26,,,,,,4,FY27,"$26,700.00",Meridian Concepts Group
+The Lindrum - IBP,JN-4407,IBP,,Progress Claim - Nov-26,"Cloud Licenses (Kode OS) 25%, $17,225
+Project Management 10%, $3,500
+Configuration 10% $3,785
+Installation 25% $1,875
+Commissioning 10% $3,300",,"$32,985.00",Nov-26,,,,,The Lindrum Progress Claim,5,FY27,"$198,357.50",Kapitol Group
+11-19 Whitehall Rd - Assembe - EMS,JN-5830,EMS,,Progress Claim,Client Training,20.00%,"$12,640.00",Nov-26,,,,,11-19 Whitehall Street - Progress Claim,5,FY27,"$44,240.00",WHITEHALL ASSEMBLE - VAST
+The Lindrum - ICN,JN-4407,ICN,PayApps,,"Equipment - MCR, 70% $9600 
+Equipment - Risers,70% $12,000
+Equipment - WiFi, 70% $3,000
+Equipment - Virtual Server, 70% $10,500 
+Equipment - IEQ, 70% $900
+
+Equipment 70% $84,000
+Project Management 10%, $2,184.0
+Commissioning 50%, $7,675",,"$112,365.00",Dec-26,,,,,The Lindrum Progress Claim,6,FY27,"$185,578.90",Kapitol
+The Lindrum - IBP,JN-4407,IBP,,Progress Claim - Jan-27,"Cloud Licenses (Kode OS) 25%, $17,225
+Project Management 10%, $3,500
+Configuration 10% $3,785
+Installation 25% $1,875
+Commissioning 10% $3,300",,"$32,985.00",Dec-26,,,,,The Lindrum Progress Claim,6,FY27,"$198,357.50",Kapitol Group
+The Lindrum - ICN,JN-4407,ICN,PayApps,,"Project Management 10%, $2,184.0
+Commissioning 50%, $7,675",,"$9,859.00",Jan-27,,,,,The Lindrum Project Management,7,FY27,"$185,578.90",Kapitol
+The Lindrum - IBP,JN-4407,IBP,,Progress Claim  - Mar-27,"Configuration 10% $3,785
+As Bulits / Trainiing 25%, $625",,"$4,410.00",Jan-27,,,,,The Lindrum Progress Claim,7,FY27,"$198,357.50",Kapitol Group
+The Lindrum - ICN,JN-4407,ICN,PayApps,,"Project Management 10%, $2,184.0
+Commissioning 50%, $7,675
+As Builts 100%, $750",,"$10,609.00",Feb-27,,,,,The Lindrum Progress Claim,8,FY27,"$185,578.90",Kapitol
+The Lindrum - IBP,JN-4407,IBP,,Progress Claim - Apr-27,"Consumables 100%, $750
+Project Management 5%, $1,750
+Configuration 10% $3,785
+Installation 25% $1,875
+Commissioning 10% $3,300
+As Bulits / Trainiing 25%, $625",,"$15,385.00",Feb-27,,,,,The Lindrum Progress Claim,8,FY27,"$198,357.50",Kapitol Group
+The Lindrum - ICN,JN-4407,ICN,PayApps,,"Project Management 10%, $2,184
+Training 100%, $1,500",,"$3,684.00",Mar-27,,,,,The Lindrum Progress Claim,9,FY27,"$185,578.90",Kapitol
+The Lindrum - IBP,JN-4407,IBP,,Progress Claim - Feb-27,"Project Management 5%, $1,750
+Configuration 15% $5,678
+DLP 100%, $1,500",,"$8,927.50",Apr-27,,,,,The Lindrum Progress Claim,10,FY27,"$198,357.50",Kapitol Group
+720 Bourke - IBP,JN-5749,IBP,TBA,Commissioning & Site Acceptance Testing,SAT,20.00%,"$11,916.60",Oct-26,,,,,720 Bourke St - Progress Claim,4,FY27,"$86,064.33",Knight Frank
+130 Lonsdale St - IBP,JN-2749,IBP,,Montly Claim,Monthly License OPEX,,"$2,916.70",Sep-26,,,,,,3,FY27,"$35,000.00",Charter Hall
+130 Lonsdale St - IBP,JN-2749,IBP,,Montly Claim,Monthly License OPEX,,"$2,916.70",Oct-26,,,,,,4,FY27,"$35,000.00",Charter Hall
+130 Lonsdale St - IBP,JN-2749,IBP,,Montly Claim,Monthly License OPEX,,"$2,916.70",Nov-26,,,,,,5,FY27,"$35,000.00",Charter Hall
+130 Lonsdale St - IBP,JN-2749,IBP,,Montly Claim,Monthly License OPEX,,"$2,916.70",Dec-26,,,,,,6,FY27,"$35,000.00",Charter Hall
+130 Lonsdale St - IBP,JN-2749,IBP,,Montly Claim,Monthly License OPEX,,"$2,916.70",Jan-27,,,,,,7,FY27,"$35,000.00",Charter Hall
+130 Lonsdale St - IBP,JN-2749,IBP,,Montly Claim,Monthly License OPEX,,"$2,916.70",Feb-27,,,,,,8,FY27,"$35,000.00",Charter Hall
+130 Lonsdale St - IBP,JN-2749,IBP,,Montly Claim,Monthly License OPEX,,"$2,916.70",Mar-27,,,,,,9,FY27,"$35,000.00",Charter Hall
+130 Lonsdale St - IBP,JN-2749,IBP,,Montly Claim,Monthly License OPEX,,"$2,916.70",Apr-27,,,,,,10,FY27,"$35,000.00",Charter Hall
+130 Lonsdale St - IBP,JN-2749,IBP,,Montly Claim,Monthly License OPEX,,"$2,916.70",May-27,,,,,,11,FY27,"$35,000.00",Charter Hall
+130 Lonsdale St - IBP,JN-2749,IBP,,Montly Claim,Monthly License OPEX,,"$2,916.70",Jun-27,,,,,,12,FY27,"$35,000.00",Charter Hall
+720 Bourke - IBP,JN-5749,IBP,TBA,Deployment of the ISP,Deployment - Configuration - All Systems,16.67%,"$13,240.67",Sep-26,,,,,720 Bourke St - Progress Claim,3,FY27,"$86,064.33",Knight Frank
+11-27 Dorcas St - ICN,JN-6538,ICN,,Progress Claim #2,,, $ -   ,Sep-26,,,,,,3,FY27,"$105,000.00",MSquared
+11-27 Dorcas St - ICN,JN-6538,ICN,,Progress Claim #3,"Project Management, 10% $1,750",,"$1,750.00",Oct-26,,,,,,4,FY27,"$105,000.00",MSquared
+11-27 Dorcas St - ICN,JN-6538,ICN,,Progress Claim #4,"Project Management, 10% $1,750",,"$1,750.00",Nov-26,,,,,,5,FY27,"$105,000.00",MSquared
+11-27 Dorcas St - ICN,JN-6538,ICN,,Progress Claim #5,"Project Management, 10% $1,750
+Design / Engineering, 25% $5,250",,"$7,000.00",Dec-26,,,,,,6,FY27,"$105,000.00",MSquared
+11-27 Dorcas St - ICN,JN-6538,ICN,,Progress Claim #6,"Project Management, 10% $1,750",,"$1,750.00",Jan-27,,,,,,7,FY27,"$105,000.00",MSquared
+11-27 Dorcas St - ICN,JN-6538,ICN,,Progress Claim #7,"Project Management, 10% $1,750",,"$1,750.00",Feb-27,,,,,,8,FY27,"$105,000.00",MSquared
+11-27 Dorcas St - ICN,JN-6538,ICN,,Progress Claim #8,"Equipment, 100% $45,000
+Project Management, 10% $1,750",,"$46,750.00",Mar-27,,,,,,9,FY27,"$105,000.00",MSquared
+11-27 Dorcas St - ICN,JN-6538,ICN,,Progress Claim #9,"Project Management, 10% $1,750
+Design / Engineering, 25% $5,250
+Configuration, 50% $4,500",,"$11,500.00",Apr-27,,,,,,10,FY27,"$105,000.00",MSquared
+11-27 Dorcas St - ICN,JN-6538,ICN,,Progress Claim #10,"Project Management, 10% $1,750",,"$1,750.00",May-27,,,,,,11,FY27,"$105,000.00",MSquared
+11-27 Dorcas St - ICN,JN-6538,ICN,,Progress Claim #11,"Project Management, 10% $1,750
+Configuration, 50% $4,500
+Installation, 100% $6,000",,"$12,250.00",Jun-27,,,,,,12,FY27,"$105,000.00",MSquared
+11-27 Dorcas St - ICN,JN-6538,ICN,,Progress Claim #12,"Project Management, 10% $1,750
+Commissioning & As Builts, 100% $6,500",,"$8,250.00",Jul-27,,,,,,1,FY28,"$105,000.00",MSquared
+720 Bourke - IBP,JN-5749,IBP,TBA,Commissioning & Site Acceptance Testing,Commissioning & Testing 1/3 Systems,20.00%,"$11,916.60",Sep-26,,,,,720 Bourke St - Progress Claim,3,FY27,"$86,064.33",Knight Frank
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #2,,, $ -   ,Sep-26,,,,,,3,FY27,"$292,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #3,"Project Management, 10% $3,350",,"$3,350.00",Oct-26,,,,,,4,FY27,"$292,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #4,"Project Management, 10% $3,350",,"$3,350.00",Nov-26,,,,,,5,FY27,"$292,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #5,"Project Management, 10% $3,350
+Design / Engineering, 25% $7,512.50",,"$10,862.50",Dec-26,,,,,,6,FY27,"$292,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #6,"Project Management, 10% $3,350
+Design / Engineering, 25% $7,512.50",,"$10,862.50",Jan-27,,,,,,7,FY27,"$292,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #7,,, $ -   ,Feb-27,,,,,,8,FY27,"$292,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #8,"Project Management, 10% $3,350",,"$3,350.00",Mar-27,,,,,,9,FY27,"$292,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #9,"Project Management, 10% $3,350",,"$3,350.00",Apr-27,,,,,,10,FY27,"$292,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #10,"Project Management, 10% $3,350",,"$3,350.00",May-27,,,,,,11,FY27,"$292,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #11,"Equipment, 60% $111,000
+Project Management, 10% $3,350
+Installation, 100% $6,000",,"$120,350.00",Jun-27,,,,,,12,FY27,"$292,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #12,"Configuration, 50% $7,725
+Installation, 100% $6,000",,"$13,725.00",Jul-27,,,,,,1,FY28,"$292,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #13,"Equipment, 40% $74,000
+Project Management, 10% $3,350
+Configuration, 50% $7,725
+Commissionint & As Builts, 100% $14,000",,"$99,075.00",Aug-27,,,,,,2,FY28,"$292,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #14,"Project Management, 10% $3,350",,"$3,350.00",Sep-27,,,,,,3,FY28,"$292,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,Progress Claim #15,,, $ -   ,Oct-27,,,,,,4,FY28,"$292,000.00",MSquared
+200 Victoria - IBP,JN-6072,IBP,TBA,Commissioning & Site Acceptance Testing,Commissioning & Testing 1/3 Systems,20.00%,"$17,700.00",Sep-26,,,,,200 Vic Pde - Progress Claim,3,FY27,"$206,500.00",ARAVest
+200 Victoria - ICN Maintenance,JN-6375,ICN,SO7192303_255549,Progress Claim #3,1/12 of Service Order (Monthly),,"$5,542.00",Sep-26,,,,,,3,FY27,"$66,504.00",ARAVest
+200 Victoria - ICN Maintenance,JN-6375,ICN,SO7192303_255549,Progress Claim #4,1/12 of Service Order (Monthly),,"$5,542.00",Oct-26,,,,,,4,FY27,"$66,504.00",ARAVest
+200 Victoria - ICN Maintenance,JN-6375,ICN,SO7192303_255549,Progress Claim #5,1/12 of Service Order (Monthly),,"$5,542.00",Nov-26,,,,,,5,FY27,"$66,504.00",ARAVest
+200 Victoria - ICN Maintenance,JN-6375,ICN,SO7192303_255549,Progress Claim #6,1/12 of Service Order (Monthly),,"$5,542.00",Dec-26,,,,,,6,FY27,"$66,504.00",ARAVest
+200 Victoria - ICN Maintenance,JN-6375,ICN,SO7192303_255549,Progress Claim #8,1/12 of Service Order (Monthly),,"$5,542.00",Feb-27,,,,,,8,FY27,"$66,504.00",ARAVest
+200 Victoria - ICN Maintenance,JN-6375,ICN,SO7192303_255549,Progress Claim #9,1/12 of Service Order (Monthly),,"$5,542.00",Mar-27,,,,,,9,FY27,"$66,504.00",ARAVest
+200 Victoria - ICN Maintenance,JN-6375,ICN,SO7192303_255549,Progress Claim #10,1/12 of Service Order (Monthly),,"$5,542.00",Apr-27,,,,,,10,FY27,"$66,504.00",ARAVest
+200 Victoria - ICN Maintenance,JN-6375,ICN,SO7192303_255549,Progress Claim #11,1/12 of Service Order (Monthly),,"$5,542.00",May-27,,,,,,11,FY27,"$66,504.00",ARAVest
+200 Victoria - ICN Maintenance,JN-6375,ICN,SO7192303_255549,Progress Claim #12,1/12 of Service Order (Monthly),,"$5,542.00",Jun-27,,,,,,12,FY27,"$66,504.00",ARAVest
+194 Pitt St - ICN & IPTV ,JN-6709,ICN,,Progress Claim #1,,,"$7,363.00",Sep-26,,,,,,3,FY27,"$1,202,541.00",1st Sponsor
+194 Pitt St - ICN & IPTV ,JN-6709,ICN,,Progress Claim #2,,,"$15,488.00",Sep-26,,,,,,3,FY27,"$1,202,541.00",1st Sponsor
+194 Pitt St - ICN & IPTV ,JN-6709,ICN,,Progress Claim #3,,,"$50,857.10",Oct-26,,,,,,4,FY27,"$1,202,541.00",1st Sponsor
+194 Pitt St - ICN & IPTV ,JN-6709,ICN,,Progress Claim #4,,,"$58,982.10",Nov-26,,,,,,5,FY27,"$1,202,541.00",1st Sponsor
+194 Pitt St - ICN & IPTV ,JN-6709,ICN,,Progress Claim #5,,,"$364,423.25",Dec-26,,,,,,6,FY27,"$1,202,541.00",1st Sponsor
+194 Pitt St - ICN & IPTV ,JN-6709,ICN,,Progress Claim #6,,,"$145,627.00",Jan-27,,,,,,7,FY27,"$1,202,541.00",1st Sponsor
+194 Pitt St - ICN & IPTV ,JN-6709,ICN,,Progress Claim #7,,,"$403,339.15",Feb-27,,,,,,8,FY27,"$1,202,541.00",1st Sponsor
+194 Pitt St - ICN & IPTV ,JN-6709,ICN,,Progress Claim #8,,,"$75,647.10",Mar-27,,,,,,9,FY27,"$1,202,541.00",1st Sponsor
+194 Pitt St - ICN & IPTV ,JN-6709,ICN,,Progress Claim #9,,,"$73,451.30",Apr-27,,,,,,10,FY27,"$1,202,541.00",1st Sponsor
+600 Collins St,JN-5396,Consulting,,Coordination Meeting with BMPX,,,"$1,440.00",Sep-26,,,,,,3,FY27,"$34,230.00",Hines
+194 Pitt St - ICN & IPTV ,JN-6709,ICN,,Progress Claim #10,,,"$7,363.00",May-27,,,,,,11,FY27,"$1,202,541.00",1st Sponsor
+PDNSW - SOC,TBA,NSW,,Monthly Claim,,,"$21,600.00",Sep-26,,,,,,3,FY27,"$259,200.00",PDNSW
+PDNSW - SOC,TBA,NSW,,Monthly Claim,,,"$21,600.00",Oct-26,,,,,,4,FY27,"$259,200.00",PDNSW
+PDNSW - SOC,TBA,NSW,,Monthly Claim,,,"$21,600.00",Nov-26,,,,,,5,FY27,"$259,200.00",PDNSW
+PDNSW - SOC,TBA,NSW,,Monthly Claim,,,"$21,600.00",Dec-26,,,,,,6,FY27,"$259,200.00",PDNSW
+PDNSW - SOC,TBA,NSW,,Monthly Claim,,,"$21,600.00",Jan-27,,,,,,7,FY27,"$259,200.00",PDNSW
+PDNSW - SOC,TBA,NSW,,Monthly Claim,,,"$21,600.00",Feb-27,,,,,,8,FY27,"$259,200.00",PDNSW
+PDNSW - SOC,TBA,NSW,,Monthly Claim,,,"$21,600.00",Mar-27,,,,,,9,FY27,"$259,200.00",PDNSW
+PDNSW - SOC,TBA,NSW,,Monthly Claim,,,"$21,600.00",Apr-27,,,,,,10,FY27,"$259,200.00",PDNSW
+PDNSW - SOC,TBA,NSW,,Monthly Claim,,,"$21,600.00",May-27,,,,,,11,FY27,"$259,200.00",PDNSW
+PDNSW - SOC,TBA,NSW,,Monthly Claim,,,"$21,600.00",Jun-27,,,,,,12,FY27,"$259,200.00",PDNSW
+88 Robertson St - QLD,TBA,Consulting,,Design Progress Claim #1,,,"$13,500.00",Sep-26,,,,,,3,FY27,"$93,350.00",Goldfields
+88 Robertson St - QLD,TBA,Consulting,,Design Progress Claim #2,,,"$13,500.00",Sep-26,,,,,,3,FY27,"$93,350.00",Goldfields
+88 Robertson St - QLD,TBA,Consulting,,Design Progress Claim #3,,,"$13,500.00",Oct-26,,,,,,4,FY27,"$93,350.00",Goldfields
+88 Robertson St - QLD,TBA,Consulting,,Design Progress Claim #4,,,"$8,075.00",Nov-26,,,,,,5,FY27,"$93,350.00",Goldfields
+88 Robertson St - QLD,TBA,Consulting,,Wired Score Progress Claim #1,,,"$8,075.00",Sep-26,,,,,,3,FY27,"$93,350.00",Goldfields
+88 Robertson St - QLD,TBA,Consulting,,Wired Score Progress Claim #2,,,"$5,050.00",Oct-26,,,,,,4,FY27,"$93,350.00",Goldfields
+88 Robertson St - QLD,TBA,Consulting,,Wired Score Progress Claim #3,,,"$5,050.00",Nov-26,,,,,,5,FY27,"$93,350.00",Goldfields
+88 Robertson St - QLD,TBA,Consulting,,Smart Score Progress Claim #1,,,"$8,500.00",Sep-26,,,,,,3,FY27,"$93,350.00",Goldfields
+88 Robertson St - QLD,TBA,Consulting,,Smart Score Progress Claim #2,,,"$8,500.00",Oct-26,,,,,,4,FY27,"$93,350.00",Goldfields
+88 Robertson St - QLD,TBA,Consulting,,Smart Score Progress Claim #3,,,"$4,800.00",Nov-26,,,,,,5,FY27,"$93,350.00",Goldfields
+88 Robertson St - QLD,TBA,Consulting,,Smart Score Progress Claim #4,,,"$4,800.00",Dec-26,,,,,,6,FY27,"$93,350.00",Goldfields
+600 Collins St,JN-5396,Consulting,,Smart Building Platform Document,,,"$4,320.00",Sep-26,,,,,,3,FY27,"$34,230.00",Hines
+600 Collins St,JN-5396,Consulting,,Smart Building Integration Requirements Document,,,"$7,200.00",Sep-26,,,,,,3,FY27,"$34,230.00",Hines
+600 Collins St,JN-5396,Consulting,,Dashboard Schedule,,,"$2,880.00",Sep-26,,,,,,3,FY27,"$34,230.00",Hines
+600 Collins St,JN-5396,Consulting,,ICN Design Brief,,,"$1,440.00",Sep-26,,,,,,3,FY27,"$34,230.00",Hines
+600 Collins St,JN-5396,Consulting,,Mobile App Spec,,,"$9,750.00",Sep-26,,,,,,3,FY27,"$34,230.00",Hines
+600 Collins St,JN-5396,Consulting,,Pool of additional hours of support (User Journeys / Marketing & Presentations,,,"$7,200.00",Nov-26,,,,,,5,FY27,"$34,230.00",Hines
+627 Chapel - ICN Maintenance,JN-2469,ICN,,Quarterly Maintenance Claim,,,"$7,608.33",Jan-27,,,,,,7,FY27,"$30,433.00",Goldfileds House 
+627 Chapel - ICN Maintenance,JN-2469,ICN,,Quarterly Maintenance Claim,,,"$7,608.33",Jul-27,,,,,,1,FY28,"$30,433.00",Goldfileds House 
+88 Robertson St - QLD,TBA,Consulting,,Progress Claim #1 - SBP / EMS,,,"$50,000.00",Mar-27,,,,,,9,FY27,"$93,350.00",Goldfields
+88 Robertson St - QLD,TBA,Consulting,,Progress Claim #1 - ICN,,,"$30,000.00",Mar-27,,,,,,9,FY27,"$93,350.00",Goldfields
+PDNSW - Newcastle CR Upgrade,JN-6561,NSW,,,"Remove existing internal CR, fitoff new card reader and commission",,"$4,650.00",Sep-26,,,,Reference,,3,FY27,"$4,650.00",PDNSW
+PDNSW - 6PSQ JCI Integriti Cutover,JN-5128,NSW,,,Cloud cutover of 6PSQ - JCI system,,"$41,460.00",Oct-26,,,,,,4,FY27,"$103,460.00",PDNSW
+36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",Sep-26,,,,,,3,FY27,"$22,689.00",Hines
+36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",Oct-26,,,,,,4,FY27,"$22,689.00",Hines
+36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",Nov-26,,,,,,5,FY27,"$22,689.00",Hines
+36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",Dec-26,,,,,,6,FY27,"$22,689.00",Hines
+36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",Jan-27,,,,,,7,FY27,"$22,689.00",Hines
+36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",Feb-27,,,,,,8,FY27,"$22,689.00",Hines
+36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",Mar-27,,,,,,9,FY27,"$22,689.00",Hines
+36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",Apr-27,,,,,,10,FY27,"$22,689.00",Hines
+36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",May-27,,,,,,11,FY27,"$22,689.00",Hines
+36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",Jun-27,,,,,,12,FY27,"$22,689.00",Hines
+36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",Jul-27,,,,,,1,FY28,"$22,689.00",Hines
+PDNSW - 6PSQ JCI Integriti Cutover,JN-5128,NSW,,,onUgo licenses,,"$62,000.00",Oct-26,,,,,,4,FY27,"$103,460.00",PDNSW
+2 Bowen Crescent,JN-6882,EMS,PO-012,"Supply, Install and Commission EMS",,,"$9,000.00",Sep-26,,,,,,3,FY27,"$9,000.00",GFS Electrical
+565-569 Melbourne Rd,JN-6884,EMS,PO-02,"Supply, Install and Commission EMS",,,"$9,750.00",Sep-26,,,,,,3,FY27,"$9,750.00",GFS Electrical
+720 Bourke - IBP,JN-5749,IBP,TBA,Commissioning & Site Acceptance Testing,Commissioning & Testing 2/3 Systems,20.00%,"$11,916.60",Sep-26,,,,,720 Bourke St - Progress Claim,3,FY27,"$86,064.33",Knight Frank
+627 Chapel - ICN Maintenance,JN-2469,ICN,,Quarterly Maintenance Claim,,,"$7,608.33",Oct-26,,,,,,4,FY27,"$30,433.00",Goldfileds House 
+200 Victoria - ICN Maintenance,JN-6375,ICN,SO7192303_255549,Progress Claim #7,1/12 of Service Order (Monthly),,"$5,542.00",Jan-27,,,,,,7,FY27,"$66,504.00",ARAVest
+The Lindrum - IBP,JN-4407,IBP,,Progress Claim - Dec-26,"Project Management 5%, $1,750
+Configuration 10% $3,785
+Commissioning 10% $3,300
+As Bulits / Trainiing 50%, $1,250",,"$10,085.00",Mar-27,,,,,The Lindrum Progress Claim,9,FY27,"$198,357.50",Kapitol Group
+627 Chapel - ICN Maintenance,JN-2469,ICN,,Quarterly Maintenance Claim,,,"$7,608.33",Apr-27,,,,,,10,FY27,"$30,433.00",Goldfileds House 

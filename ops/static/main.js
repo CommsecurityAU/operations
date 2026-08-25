@@ -3,26 +3,41 @@
 
 import { api, h, mount } from "./app.js";
 import * as projects from "./projects.js";
+import * as claims from "./claims.js";
 import * as worklist from "./worklist.js";
 
-const SCREENS = { projects, worklist };
+const SCREENS = { projects, claims, worklist };
 
 async function boot() {
   const identity = document.getElementById("identity");
   const view = document.getElementById("view");
   const status = document.getElementById("status");
 
+  let me;
   try {
-    const me = await api("GET", "/api/me");
-    mount(identity, h("span", null,
-      me.display_name,
-      h("span", { class: "roles" },
-        me.roles.length ? ` ${me.roles.map((r) => r.role).join(" ")}` : " no access")));
-  } catch {
-    // Not signed in: the server will redirect the browser at /login.
-    window.location.href = "/login";
+    me = await api("GET", "/api/me");
+  } catch (err) {
+    // Do NOT bounce straight to /login.
+    //
+    // An automatic redirect makes the app unusable the moment sign-in is
+    // broken: the page leaves before anyone can read why, and it leaves so
+    // fast there is no way to reach this origin's console. A screen with a
+    // button costs one click and keeps the failure visible and local.
+    mount(view, h("div", { class: "content" },
+      h("div", { class: "state" },
+        h("h2", null, err.status === 401 ? "Not signed in" : "Cannot sign in"),
+        h("p", null, err.status === 401
+          ? "Your session has ended, or you have not signed in yet."
+          : err.message),
+        h("p", { class: "state-action" },
+          h("a", { class: "signin", href: "/login" }, "Sign in with Google")))));
+    mount(status, document.createTextNode("not signed in"));
     return;
   }
+  mount(identity, h("span", null,
+    me.display_name,
+    h("span", { class: "roles" },
+      me.roles.length ? ` ${me.roles.map((r) => r.role).join(" ")}` : " no access")));
 
   const name = (location.hash.replace("#", "") || "projects");
   for (const link of document.querySelectorAll(".nav a")) {

@@ -1,0 +1,71 @@
+Project,Job Code,Type,Purchase Order,Phase,Task,%,Invoice Amount,EOM,Customer Approved,Invoice Number,Payment Receipted Date,Detail,Reference,Month,Year,Contract Value,Client
+COMMSecurity Labour (Techs / Tayler),JN-CommS,Security,,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,$0.00,CommSecurity
+Adhoc Service Calls,#N/A,#N/A,,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,#N/A,#N/A
+Dover House - ICN Maintenance,TBA,ICN,,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,$0.00,TBC
+627 Chapel - ICN Maintenance,JN-2469,ICN,,"Goldfields House Pty ltd (3 month maintenance Jan to March 2026
+(3 month maintenance April to June 2026) (7250).
+Billed $20,288.88
+
+$7,608.33 per Quarter",,,"$20,288.88",Jul-26,,Inv No. 7250,,Reference,,1,FY27,"$30,433.00",Goldfileds House 
+200 Victoria - ICN Maintenance,JN-6375,ICN,,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,"$66,504.00",ARAVest
+130 Little Collins - ICN Maintenance,TBA,ICN,,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,$0.00,Knight Frank
+PDNSW - SOC,TBA,NSW,,Ongoing Operational Support,Security Operations Centre ,,"$21,600.00",Jul-26,,Inv No. 7331,,,,1,FY27,"$259,200.00",PDNSW
+194 Pitt St - ICN,JN-5261,ICN,,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,$0.00,1st Sponsor
+The Lindrum - ICN,JN-4407,ICN,PayApps,Progress Claim - #5 - Jul-26,"Equipment 18.75% $22,500
+Equipment - MCR, 30% $9600 
+Equipment - Risers,30% $12,000
+Equipment - IEQ, 30% $900",,"$22,500.00",Jul-26,,Inv No. 7332,,,The Lindrum Progress Claim,1,FY27,"$185,578.90",Kapitol
+The Lindrum - IBP,JN-4407,IBP,,Progress Claim - #5 - Jul-26,"Design / Engineering 40% $22,000
+Configuration 5% $1,892.5",,"$23,892.50",Jul-26,,Inv No. 7332,,,The Lindrum Progress Claim,1,FY27,"$198,357.50",Kapitol Group
+116 Cremorne St - ICN,JN-676,ICN,,Progress Claim,"5% of $214,000",,"$10,700.00",Jul-26,,676/6,,,,1,FY27,"$10,700.00",Acton
+88 Jolimont - Maintenance,JN-5416,IBP,,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,"$25,680.00",CoBild
+CCTV Video Wall,JN-5025,NSW,,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,$0.00,PDNSW
+720 Bourke - IBP,JN-5749,IBP,,Expected Aug-26,,, $ -   ,Jul-26,,,,Reference,,1,FY27,"$86,064.33",Knight Frank
+200 Victoria - IBP,JN-6072,IBP,PO7053807_255549,"Progress Claim #4
+Deployment of the ISP",Deployment - Configuration - 1/3 Systems,33.33%,"$39,333.33",Jul-26,,Inv No. 7333,,,200 Vic Pde - Progress Claim,1,FY27,"$206,500.00",ARAVest
+570 Little Bourke St ICN,JN-692,ICN,,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,"$345,000.00",Hickory
+11-19 Whitehall Rd - Assembe - EMS,JN-5830,EMS,,Expected Aug-26,,, $ -   ,Jul-26,,,,Reference,,1,FY27,"$44,240.00",WHITEHALL ASSEMBLE - VAST
+40 Upper Heidelberg Road Ivanhoe - EMS,JN-6337,EMS,,Expected Aug-26,,, $ -   ,Jul-26,,,,Reference,,1,FY27,"$6,726.00",Meridian Concepts Group
+223-231 Johnston St - EMS,JN-6338,EMS,,Progress Claim,Procurement of RAVEN and Adapters,,"$7,500.00",Jul-26,,Inv No. 6338/2,,,,1,FY27,"$26,700.00",Meridian Concepts Group
+PDNSW - 6PSQ L13 & L14 10x Access Doors,JN-6394,NSW,,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,$0.00,PDNSW
+PDNSW - Maitland Renovation Variation Access Door,JN-6398,NSW,,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,$0.00,Dice Contractor
+PDNSW - 5000x HID Cards,JN-6403,NSW,,,,,,Jul-26,Claims last month ,,,Reference,,1,FY27,$0.00,PDNSW
+11-27 Dorcas St - ICN,JN-6538,ICN,,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,"$105,000.00",MSquared
+25-35 River Boulevard - ICN,JN-653,ICN,PO-2315,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,"$292,000.00",MSquared
+Oasis Health Group Gym,JN-6735,Q-Access,,,,, $ -   ,Jul-26,,,,Reference,,1,FY27,$50.00,Oasis Health Group Gym
+130 Lonsdale St - IBP,JN-2749,IBP,,Montly Claim,Monthly License OPEX,,"$2,916.70",Jul-26,,Inv No. 7384,,,,1,FY27,"$35,000.00",Charter Hall
+PDNSW - Nowra CCTV & Break Glass Monitoring,JN-6659,NSW,,,,,"$12,400.00",Jul-26,,Inv No. 7334,,,,1,FY27,"$12,400.00",PDNSW
+PDNSW - 6PSQ L14 Tenancy Access Door,JN-6704,NSW,,,,,"$6,600.00",Jul-26,,Inv No. 7335,,,,1,FY27,"$6,600.00",PDNSW
+PDNSW - RGB Renovation Works,JN-6635,NSW,,,,,"$22,000.00",Jul-26,,Inv No. 7336,,,,1,FY27,"$22,000.00",PDNSW
+PDNSW - 6PSQ Level 12 Alarm Investigation,JN-6631,NSW,,,,,$550.00,Jul-26,,Inv No. 7337,,,,1,FY27,$550.00,PDNSW
+PDNSW - 6PSQ 5.N.8 FCR1 Card Reader Fault,JN-6574,NSW,,,,,$460.00,Jul-26,,Inv No. 7338,,,,1,FY27,$460.00,PDNSW
+PDNSW -RGB Armoury CCTV,JN-6731,NSW,,,,,"$4,600.00",Jul-26,,Inv No. 7381,,,,1,FY27,"$4,600.00",PDNSW
+PDNSW -RGB 4x Office Doors GF,JN-6765,NSW,,,,,"$17,650.00",Jul-26,,Inv No. 7382,,,,1,FY27,"$17,650.00",PDNSW
+200 Victoria - ICN Maintenance,JN-6375,ICN,SO7192303_255549,Progress Claim #1,1/12 of Service Order (Monthly),,"$5,542.00",Jul-26,,Inv No. 7383,,,,1,FY27,"$66,504.00",ARAVest
+720 Bourke St - Fibre Cabling,JN-6571,Service,,,,,"$9,048.00",Jul-26,,Inv No. 7390,,,,1,FY27,"$9,048.00",Cbus
+36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",Jul-26,,INV-7313,,,,1,FY27,"$22,689.00",Hines
+720 Bourke - IBP,JN-5749,IBP,TBA,Deployment of the ISP,Deployment - Configuration - All Systems,16.67%,"$13,240.67",Aug-26,,5749/5,,,720 Bourke St - Progress Claim,2,FY27,"$86,064.33",Knight Frank
+The Lindrum - ICN,JN-4407,ICN,PayApps,Progress Claim - Aug-26,"Project Management 20%, $4,368.0
+Design / Engineering 10% $2,825.9",,"$7,193.90",Aug-26,,,,,The Lindrum Progress Claim,2,FY27,"$185,578.90",Kapitol
+The Lindrum - IBP,JN-4407,IBP,PayApps,Progress Claim - Aug-26,"Project Management 20%, $7,000
+Configuration 5% $1,892.5",,"$8,892.50",Aug-26,,,,,The Lindrum Progress Claim,2,FY27,"$198,357.50",Kapitol Group
+200 Victoria - IBP,JN-6072,IBP,Issue to JAG only,"Progress Claim #5
+Deployment of the ISP",Deployment - Configuration - 2/3 Systems,33.33%,"$39,333.33",Aug-26,,Inv No. 6072/5,,,200 Vic Pde - Progress Claim,2,FY27,"$206,500.00",ARAVest
+200 Victoria - IBP,JN-6072,IBP,Issue to JAG only,"Progress Claim #5
+Deployment of the ISP",Deployment - Configuration - All Systems,33.33%,"$39,333.33",Aug-26,,Inv No. 6072/5,,,200 Vic Pde - Progress Claim,2,FY27,"$206,500.00",ARAVest
+11-19 Whitehall Rd - Assembe - EMS,JN-5830,EMS,,Progress Claim,Deployment & Configuration,40.00%,"$25,280.00",Aug-26,,1435464,,,11-19 Whitehall Street - Progress Claim,2,FY27,"$44,240.00",WHITEHALL ASSEMBLE - VAST
+40 Upper Heidelberg Road Ivanhoe - EMS,JN-6337,EMS,,Progress Claim,Installation on Site and KODE OS established,,"$3,000.00",Aug-26,,1620614,,,,2,FY27,"$6,726.00",Meridian Concepts Group
+11-27 Dorcas St - ICN,JN-6538,ICN,,Progress Claim #1,"Design / Engineering, 50% $10,500",,"$10,500.00",Aug-26,,702/1,,,,2,FY27,"$105,000.00",MSquared
+25-35 River Boulevard - ICN,JN-6537,ICN,PO-2315,Progress Claim #1,"Design / Engineering, 50% $15,025",,"$15,025.00",Aug-26,,1693632,,,,2,FY27,"$292,000.00",MSquared
+537 Malvern Rd – Mobile Repeater Design,JN-6817,ICN,,Completion Claim,,,"$17,000.00",Aug-26,,"Not Yet, invocie EOM ",,,,2,FY27,"$17,000.00",CoBild
+570 Little Bourke St ICN,JN-692,ICN,,Progress Claim #2,"Project Management, 10% $3,145",,"$3,145.00",Aug-26,,,,,,2,FY27,"$345,000.00",Hickory
+PDNSW - SOC,TBA,NSW,,Monthly Claim,,,"$21,600.00",Aug-26,,INV-7583,,,,2,FY27,"$259,200.00",PDNSW
+6PSQ Level 1 FCR Card Reader Fault,JN-6849,NSW,,,,,,Aug-26,,,,,,2,FY27,$0.00,PDNSW
+Newcastle CCTV Fault,JN-6844,NSW,,,,,,Aug-26,,,,,,2,FY27,$0.00,PDNSW
+Maitland storage cage & roller door Access Control,TBA,NSW,,,,,,Aug-26,,,,,,2,FY27,$0.00,PDNSW
+User Consolidation Software Tool,JN-6888,NSW,,,Integriti works towards Raven Dashboard / User List,,"$13,890.00",Aug-26,,Inv No. 7584,,,,2,FY27,"$13,890.00",PDNSW
+200 Victoria - ICN Maintenance,JN-6375,ICN,SO7192303_255549,Progress Claim #2,1/12 of Service Order (Monthly),,"$5,542.00",Aug-26,,6375/2,,,,2,FY27,"$66,504.00",ARAVest
+36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",Aug-26,,,,,,2,FY27,"$22,689.00",Hines
+200 Vic - Fire Site Visit,JN-6834,IBP,PO8000793_255549,Site Visit - Fire Gateways,,,$400.00,Aug-26,,Inv No. 7586,,,,2,FY27,$400.00,ARAVest
+130 Lonsdale St - IBP,JN-2749,IBP,,Montly Claim,Monthly License OPEX,,"$2,916.70",Aug-26,,,,,,2,FY27,"$35,000.00",Charter Hall
+,,,,,,"$457,655.34",,,,,,,,,,,

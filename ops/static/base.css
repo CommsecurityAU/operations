@@ -415,6 +415,19 @@ button.danger { border-color: var(--alarm); color: var(--alarm); }
 
 .state-action { text-align: center; padding-bottom: var(--u8); }
 
+/* The sign-in link is the only thing on the page, so it looks like the
+ * control it is rather than a line of prose with an underline. */
+a.signin {
+  display: inline-block;
+  height: var(--h-control);
+  line-height: var(--h-control);
+  padding: 0 var(--u4);
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+  font-size: var(--fs-small);
+}
+a.signin:hover { background: var(--s-2); text-decoration: none; }
+
 /* Information, not an alarm: something happened that differs from what was
  * typed. Amber, because it wants reading once, not fixing. */
 .notice {

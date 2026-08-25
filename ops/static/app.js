@@ -78,6 +78,46 @@ export const fmt = {
   },
 };
 
+// toCents / moneyInput — the ONE money conversion in the browser, mirroring
+// ops/money.py being the one on the server.
+//
+// Nothing else may multiply or divide by 100. Two places that convert money
+// is two places to disagree, and they always eventually do.
+const MONEY_SHAPE = /^-?\d*\.?\d{0,2}$/;
+
+export function toCents(text) {
+  const clean = String(text ?? "").replace(/[$,\s]/g, "");
+  if (clean === "") return 0;
+  if (!MONEY_SHAPE.test(clean)) return null;      // null means "not an amount"
+  const neg = clean.startsWith("-");
+  const [whole, frac = ""] = clean.replace("-", "").split(".");
+  // Through strings, not arithmetic: 19.99 * 100 is 1998.9999999999998.
+  const cents = Number(whole || 0) * 100 + Number((frac + "00").slice(0, 2));
+  return neg ? -cents : cents;
+}
+
+// A text input that SHOWS dollars the way the rest of the app does, and
+// accepts them however they are typed. Formatted when it does not have
+// focus, plain while being edited -- commas appearing mid-keystroke is the
+// reason people distrust money fields.
+export function moneyInput(cents, attrs) {
+  const input = h("input", {
+    type: "text", inputmode: "decimal", ...(attrs || {}),
+  });
+  const show = (c) => { input.value = c === null || c === undefined ? "" : fmt.money(c); };
+  show(cents);
+  input.addEventListener("focus", () => {
+    const c = toCents(input.value);
+    if (c !== null) input.value = (c / 100).toFixed(2);
+    input.select();
+  });
+  input.addEventListener("blur", () => {
+    const c = toCents(input.value);
+    if (c !== null) show(c);          // leave it alone if it is not an amount,
+  });                                 // so the error message can point at it
+  return input;
+}
+
 // mount(el, node) — replace a container's contents without innerHTML.
 export function mount(el, node) {
   while (el.firstChild) el.removeChild(el.firstChild);

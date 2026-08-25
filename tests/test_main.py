@@ -265,6 +265,96 @@ class TestCodeFingerprint(unittest.TestCase):
         self.assertNotEqual(before, main_mod.code_fingerprint(self.dir))
 
 
+class TestTlsPreflight(unittest.TestCase):
+    """TLS had never been exercised before the first deploy was planned.
+
+    All three failure modes surfaced as `FileNotFoundError: [Errno 2] No
+    such file or directory` with no path, or a raw OpenSSL string. Those are
+    the messages someone reads while the service is down.
+    """
+
+    def setUp(self):
+        if shutil.which("openssl") is None:
+            self.skipTest("openssl not available")
+        self.dir = tempfile.mkdtemp()
+        os.makedirs(os.path.join(self.dir, "tls"))
+        os.makedirs(os.path.join(self.dir, "secrets"))
+        LocalProvider(os.path.join(self.dir, "secrets", "store.json")).set(
+            "OIDC_CLIENT_SECRET", "x")
+        logging.getLogger("ops.main").setLevel(logging.CRITICAL)
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def make_pair(self, crt="server.crt", key="server.key", days=365):
+        import subprocess
+        subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "rsa:2048",
+             "-keyout", os.path.join(self.dir, "tls", key),
+             "-out", os.path.join(self.dir, "tls", crt),
+             "-days", str(days), "-nodes", "-subj", "/CN=ops.test"],
+            check=True, capture_output=True)
+
+    def cfg(self):
+        return Config(data_dir=self.dir, tls=True, port=0,
+                      oidc_client_id="cid",
+                      oidc_redirect_uri="https://ops.test/auth/callback")
+
+    def boot_it(self):
+        return boot(cfg=self.cfg(),
+                    env={"OPS_SECRETS_PATH":
+                         os.path.join(self.dir, "secrets", "store.json")},
+                    serve=False)
+
+    def test_a_complete_pair_boots_over_tls(self):
+        self.make_pair()
+        db, server, sched = self.boot_it()
+        try:
+            self.assertTrue(hasattr(server.socket, "context"))
+        finally:
+            sched.stop()
+            server.server_close()
+            db.close()
+
+    def test_missing_certificate_names_the_path(self):
+        with self.assertRaises(SystemExit) as e:
+            self.boot_it()
+        self.assertEqual(e.exception.code, 2)
+
+    def test_missing_key_is_refused(self):
+        self.make_pair()
+        os.unlink(os.path.join(self.dir, "tls", "server.key"))
+        with self.assertRaises(SystemExit) as e:
+            self.boot_it()
+        self.assertEqual(e.exception.code, 2)
+
+    def test_a_mismatched_pair_is_refused(self):
+        """Two separate issuances is the likely mistake, and OpenSSL's own
+        message for it says nothing about what to do."""
+        self.make_pair()
+        self.make_pair(crt="unused.crt", key="server.key")
+        with self.assertRaises(SystemExit) as e:
+            self.boot_it()
+        self.assertEqual(e.exception.code, 2)
+
+    def test_the_messages_name_the_file_and_the_remedy(self):
+        with self.assertLogs("ops.main", level="ERROR") as cm:
+            with self.assertRaises(SystemExit):
+                self.boot_it()
+        text = " ".join(cm.output)
+        self.assertIn("server.crt", text)
+        self.assertIn("internal CA", text)
+        self.assertIn("OPS_TLS=off", text)
+
+    def test_it_fails_before_the_server_is_built(self):
+        """A bad certificate must fail the DEPLOY, not the first request."""
+        import socket as socket_mod
+        before = len(socket_mod.socket.__subclasses__())
+        with self.assertRaises(SystemExit):
+            self.boot_it()
+        self.assertEqual(len(socket_mod.socket.__subclasses__()), before)
+
+
 class TestBootRefusals(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
@@ -525,10 +615,21 @@ class TestStp0ExitCriteria(Stp0Case):
         _, body = self.request("GET", "/api/projects", self.session_for(user))
         self.assertEqual(body["projects"][0]["needs_resolution"], 1)
 
-    def test_forged_cookie_is_refused(self):
+    def test_forged_cookie_is_refused_as_401_not_403(self):
+        """A bad signature means we do not know who this is -- authenticate.
+        403 would tell the browser the user is known and not allowed, which
+        gives it no reason to send them to sign in."""
         forged = auth.mint_session(b"z" * 32, 1, 1)
         status, _ = self.request("GET", "/api/projects",
                                  f"{auth.COOKIE_NAME}={forged}")
+        self.assertEqual(status, 401)
+
+    def test_a_known_user_without_the_role_is_403(self):
+        """The other side of the distinction: identity established, answer
+        still no."""
+        user = auth.sign_in(self.db, {"sub": "s9", "email": "n@x", "name": "N"})
+        status, _ = self.request("GET", "/api/projects",
+                                 self.session_for(user))
         self.assertEqual(status, 403)
 
     def test_security_headers_present_on_api_responses(self):

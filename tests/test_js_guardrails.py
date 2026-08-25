@@ -124,6 +124,36 @@ class TestNoExternalCode(unittest.TestCase):
                                 f"{name}: non-relative import {m.group(1)!r}")
 
 
+class TestOneMoneyConversion(unittest.TestCase):
+    """The browser has ONE money conversion, in app.js, mirroring
+    ops/money.py being the one on the server.
+
+    Two places that convert money is two places to disagree, and they always
+    eventually do -- usually one of them truncating while the other rounds.
+    """
+
+    def test_no_other_file_converts_between_cents_and_dollars(self):
+        offenders = []
+        for name, path in static_files((".js",)):
+            if name == "app.js":
+                continue
+            body = code_only(read(path))
+            for n, line in enumerate(body.splitlines(), 1):
+                if re.search(r"[/*]\s*100\b", line):
+                    offenders.append(f"{name}:{n} {line.strip()[:60]}")
+        self.assertEqual(offenders, [])
+
+    def test_app_js_exports_the_conversion_for_others_to_use(self):
+        body = code_only(read(os.path.join(STATIC, "app.js")))
+        self.assertIn("export function toCents", body)
+        self.assertIn("export function moneyInput", body)
+
+    def test_money_parsing_goes_through_strings_not_arithmetic(self):
+        """19.99 * 100 is 1998.9999999999998 at double precision."""
+        body = code_only(read(os.path.join(STATIC, "app.js")))
+        self.assertIn('.split(".")', body)
+
+
 class TestBudgets(unittest.TestCase):
     def test_each_js_file_is_under_the_page_budget(self):
         for name, path in static_files((".js",)):

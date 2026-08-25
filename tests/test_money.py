@@ -108,7 +108,7 @@ class TestParse(unittest.TestCase):
             ("$1,234.56", 123456), ("1234.56", 123456), ("$0.00", 0),
             ("-", 0), ("", 0), (None, 0), ("$700,000", 70000000),
             ("(1,234.56)", -123456), ("-$550.00", -55000),
-            ("$3,520,041.73", 352004173), ("$45,361", 4536100),
+            ("$3,562,251.73", 356225173), ("$45,361", 4536100),
         ]:
             self.assertEqual(money.parse(text), want, text)
 
@@ -143,7 +143,7 @@ class TestParse(unittest.TestCase):
 
 class TestFormat(unittest.TestCase):
     def test_round_trip(self):
-        for text in ("$1,234.56", "$0.00", "$3,520,041.73", "$700,000.00"):
+        for text in ("$1,234.56", "$0.00", "$3,562,251.73", "$700,000.00"):
             self.assertEqual(money.format(money.parse(text)), text)
 
     def test_negatives_use_parentheses_like_the_source(self):
@@ -175,12 +175,12 @@ class TestAgainstThePinnedRegister(unittest.TestCase):
 
     def test_the_pins_reproduce_through_the_money_module(self):
         self.assertEqual(
-            sum(money.parse(r["Purchase Order"]) for r in self.rows), 723190700)
+            sum(money.parse(r["Purchase Order"]) for r in self.rows), 723265700)
         self.assertEqual(
-            sum(money.parse(r["Invoiced Prior"]) for r in self.rows), 371186527)
+            sum(money.parse(r["Invoiced Prior"]) for r in self.rows), 367040527)
         self.assertEqual(
             sum(money.parse(r["Contract Value FY27"]) for r in self.rows),
-            352004173)
+            356225173)
 
 
 if __name__ == "__main__":

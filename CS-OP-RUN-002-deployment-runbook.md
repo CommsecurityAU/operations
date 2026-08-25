@@ -29,6 +29,14 @@ Two things follow, worth holding in view rather than discovering later:
 **Revisit when:** the VM exists, or STP-2 is ready to carry real data —
 whichever comes first. The second is the harder deadline.
 
+**That moment arrived on 25 August 2026.** The platform now holds 202
+imported claims, the full FY27 forward position of $3,203,976.74, and
+corrections that exist nowhere else — four opening balances and ten project
+leads applied through `sync_register.py`. **There is still no off-box
+backup.** The only copy of that state is one laptop's `data/ops.db`. This is
+no longer a theoretical exposure and the runbook should be executed as soon
+as the VM allows.
+
 ---
 
 ## Four things this runbook does not know

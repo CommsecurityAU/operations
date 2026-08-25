@@ -54,17 +54,30 @@ same cookie, no re-login → 59 projects and $3,520,041.73, token bump → 401.
 
 | | |
 |---|---:|
-| Projects | 59 |
-| Purchase Order | $7,231,907.00 |
-| Invoiced Prior (29 opening rows) | $3,711,865.27 |
-| **Orders in Hand, FY27 start** | **$3,520,041.73** |
+| Projects | 63 |
+| Purchase Order | $7,232,657.00 |
+| Invoiced Prior (25 opening rows) | $3,670,405.27 |
+| **Orders in Hand, FY27 start** | **$3,562,251.73** |
 | Residual | $0.00 |
+
+**FY27 to date**, after the claims import (202 claims):
+
+| | |
+|---|---:|
+| Invoiced Jul-26 + Aug-26 | $457,655.34 |
+| Forecast, Sep-26 onward | $3,203,976.74 |
+| **Orders in Hand, today** | **$3,104,596.39** |
+
+`Monthly Data` is a pivot of Invoicing, Future Invoicing and the register.
+It reconciles to the detail **exactly**, every project, every month — which
+is worth asserting on every import: a pivot disagreeing with its own source
+means a row was missed on the way in.
 
 `Purchase Order == Invoiced Prior + Contract Value FY27` holds on every row.
 The importer **asserts** this rather than deriving it; one bad row aborts
 the whole import before anything is written. Pinned in
-`tests/test_import_register.py` as cents: `723190700`, `371186527`,
-`352004173`.
+`tests/test_import_register.py` as cents: `723265700`, `367040527`,
+`356225173`.
 
 The `Invoiced FY26` → `Invoiced Prior` rename was the important cleanup:
 five DLP projects had FY25 billing the old column never reached, so
@@ -79,7 +92,7 @@ one-to-many. Leave alone: `P-3655`, `P-3707`, `JN-CommS`. Resolution gates
 
 ---
 
-## What changed today
+## What changed 25 August
 
 **Worklist** reviewed and working against the real 8 rows. Four actions
 rather than one Resolve button, a mandatory reason for the judgement calls,
@@ -107,6 +120,40 @@ platform no longer allocates. iTrade still issues, so a number allocated
 here could collide with one issued there tomorrow, surfacing only in Xero.
 Creation records the code we were given or records `TBA`; allocation
 requires a reserved block and refuses until one is agreed.
+
+---
+
+## What changed 25 August — STP-2
+
+**Migrations 003, 004, 005.** Orders in hand now derives from
+`sum(customer_po) − sum(claims invoiced)` rather than two columns on
+`project`, and the figure did not move: a test zeroes the legacy columns and
+asserts the view is unmoved, because otherwise "we changed the source" is a
+claim rather than a fact. **No financial year appears in the view** — a test
+greps for one — because `contract − claims up to X` answers FY27 opening,
+FY28 opening and today with a single definition.
+
+**Retention (004)** belongs to the **PO, not the project**: a variation that
+raises the PO raises its cap with it, and scope run as a separate PO carries
+its own terms or none. Withholding is computed **at invoicing, not at
+creation** — two forecasts each computed against the same remaining capacity
+would both take the full 10% and together breach the cap the moment both
+were invoiced.
+
+**Schedules (005).** Maintenance is one agreement spread over a year, not
+twelve claims someone typed. Generation is idempotent by database
+constraint, not by a check in the code. Renewal dates carry a notice period,
+and overdue renewals sort first and stay in the list.
+
+**Claims imported: 202.** Every figure reconciles to the workbook.
+
+**`tools/sync_register.py`** completes ADR-27: `drift_check` finds
+differences and never writes; this applies the safe ones. It corrects
+opening balances despite their immutability triggers — standing them down
+for exactly as long as the correction takes, restoring them in a `finally`,
+requiring a reason, auditing each one. An opening balance is a migration
+artifact, not an invoice anyone issued, so a wrong one has to be
+correctable.
 
 ---
 
@@ -211,6 +258,21 @@ requires a reserved block and refuses until one is agreed.
   stale database must SAY the database is behind rather than failing on a
   missing column.
 
+**The most expensive mistake so far**
+
+- **The Google Drive markdown conversion is NOT a data source.** It silently
+  dropped rows from one tab, merged two unrelated tabs into another, and
+  reported 131 rows where the CSV export has 147. On the strength of it I
+  spent an hour telling Richard his workbook was missing $126,268.91 of line
+  items that were there all along, and pushed back twice when he said so.
+  **Read structure from it if you like; take every figure from a CSV
+  export.** The tell was present early and I missed it: the pivot in the
+  SAME export already accounted for rows the detail tab appeared to lack —
+  which is only possible if the export, not the workbook, was wrong.
+- Corollary: when a control total and its own detail disagree, suspect the
+  reader before the data. Two independent parses agreeing means nothing if
+  both read the same corrupted copy.
+
 **Checks that were wrong about themselves**
 
 - N-1 runs the OLD TAG'S tests, which are frozen — so it fails when an old
@@ -250,21 +312,28 @@ requires a reserved block and refuses until one is agreed.
 
 ## Resume point
 
-**Deploy to the internal VM.** Everything below has been running only on one
-laptop, and STP-001's standing rule is that a phase ships and is *used in
-anger* before the next begins. On that test neither STP-0 nor STP-1 has
-closed, because nobody outside this machine has used either.
+**Tomorrow, in order of value:**
 
-Deploying is also what surfaces the things a laptop cannot: the fleet
-manager's health gate against a real `/healthz`, TLS with the internal CA
-certificate, `offbox_sync.sh` on a cron, and the first restore rehearsal
-against something other than a container here. Better before STP-2 builds
-invoicing on top than after.
+1. **Schedule UI.** 36 Wellington, 200 Victoria and 627 Chapel each carry
+   twelve hand-entered rows. The model is built and tested; there is no
+   screen to set one up. This is the one thing here the workbook genuinely
+   cannot do, and the only item that removes recurring work rather than
+   recording it.
+2. **Retention terms per PO.** Every PO currently reads
+   `retention_applies = 0` because there is no way to set them. Richard is
+   assigning these per project.
+3. **PO management** — a second PO on a project, and a variation recorded as
+   a revision. `update_project` currently moves the migrated PO as a side
+   effect; that is the expand-window compromise and should not outlive it.
 
-The build order after that is STP-2: migration `003`, `customer_po` and
-`claim_line`, the 29 synthetic opening rows, and orders in hand becoming
-`sum(customer_po) − sum(claims up to X)` with no financial year in the
-formula.
+**Outside the phase, and now more pressing:** deployment. The platform holds
+real invoicing data and there is still no off-box backup. The deferral note
+in CS-OP-RUN-002 said the deadline was not the VM but "the moment STP-2 can
+carry real data" — that moment has arrived.
+
+**Small:** `222 Bourke St` and `Samma Pl` exist in the workbook, not the
+platform. They need creating through the UI because each needs a job-code
+decision (ADR-28).
 
 ---
 
@@ -273,10 +342,10 @@ formula.
 ```powershell
 cd C:\Dev\operations
 .\dev.ps1                 # serve on 5173
-.\dev.ps1 -Session        # cookie, if the last one expired
 .\dev.ps1 -Stale          # is the running server current?
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 382
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 503
+py tools\drift_check.py --csv "<register>.csv" --db data\ops.db
 ```
 
-Code fingerprint at end of day: `4bc3a2b24757`. Migrations applied: `001`,
-`002`.
+Code fingerprint at end of day: `7b36b58bd776`. Migrations applied: `001`
+through `005`.

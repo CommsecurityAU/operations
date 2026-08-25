@@ -1,6 +1,6 @@
 # CS-OP-STP-001 — Delivery plan
 
-- **As at:** 24 August 2026
+- **As at:** 25 August 2026
 - **Status:** Live. **Supersedes CS-OP-ARCH-001 §11 in full.**
 - **Depends on:** CS-OP-ARCH-002 (stack, budgets, ADR-08…26)
 - **Companions:** CS-OP-BUILD-001 (build status), CS-OP-RUN-001 (restore runbook)
@@ -39,11 +39,13 @@ Stated explicitly so nobody has to infer it again.
 | Migration | STP | Contents |
 |---|---|---|
 | `001_foundation` | STP-0 + STP-1 | entity, period, users, user_entity_role, audit_log, client, project_type, project, job_code_alias, job_code_issue, job_number_sequence |
-| `002` | STP-1 | job-number range columns (ADR-29) |
-| `003` | STP-2 | customer_po, customer_po_revision, claim_line, claim_line_revision, opening balances |
-| `004` | STP-3 | supplier, supplier_po, supplier_po_line, supplier_invoice, fx_rate, project_expense_estimate |
-| `005` | STP-4 | office_expense_line, payroll_rate, tax_rate |
-| `006` | STP-5 | rollup views only |
+| `002` | STP-1 | job-number range columns (ADR-29) — **applied** |
+| `003` | STP-2 | customer_po, customer_po_revision, claim_line, claim_line_revision, opening balances — **applied** |
+| `004` | STP-2 | retention per PO, practical completion and DLP dates — **applied** |
+| `005` | STP-2 | claim_schedule, renewal dates — **applied** |
+| `006` | STP-3 | supplier, supplier_po, supplier_po_line, supplier_invoice, fx_rate, project_expense_estimate |
+| `007` | STP-4 | office_expense_line, payroll_rate, tax_rate |
+| `008` | STP-5 | rollup views only |
 
 **STP-0 and STP-1 share migration `001`.** ARCH-001 assigned the project
 register to STP-1's migration, but the register is what STP-0's exit
@@ -187,8 +189,8 @@ eliminating the copy-forward. History does not move when a PO is corrected.
 
 **Proposal.**
 
-- Migration `003`: `customer_po`, `customer_po_revision`, `claim_line`,
-  `claim_line_revision`
+- Migrations `003`–`005`: `customer_po`, `customer_po_revision`,
+  `claim_line`, `claim_line_revision`, retention, schedules — **done**
 - **29 synthetic opening `claim_line` rows** (ADR-22): dated 30 Jun 2026,
   `is_opening_balance = 1`, immutable, `customer_po_id` NULL, totalling
   $3,711,865.27
@@ -227,7 +229,7 @@ with roll-up and estimate clearly separated.
 
 **Proposal.**
 
-- Migration `004`: `supplier`, `supplier_po`, `supplier_po_line`,
+- Migration `006`: `supplier`, `supplier_po`, `supplier_po_line`,
   `supplier_invoice`, `fx_rate`, `project_expense_estimate`
 - Per-entity sequential supplier PO numbering via `UPDATE … RETURNING`
   inside the issuing transaction
@@ -259,7 +261,7 @@ dated rate table. One wage change propagates automatically.
 
 **Proposal.**
 
-- Migration `005`: `office_expense_line`, `payroll_rate`, `tax_rate`
+- Migration `007`: `office_expense_line`, `payroll_rate`, `tax_rate`
 - Rates are **dated rows per entity, never configuration** (ADR-20). Every
   computed figure records the `rate_bp` it used, so changing a rate cannot
   restate a prior year
@@ -299,7 +301,7 @@ and no cell can be `#REF!` or `#N/A` by construction.
 
 **Proposal.**
 
-- Migration `006`: `v_project_financials`, `v_monthly_pl`, `v_dashboard`,
+- Migration `008`: `v_project_financials`, `v_monthly_pl`, `v_dashboard`,
   `v_by_type`, `v_by_client` — views only, no new fact tables
 - Operations Summary, monthly P&L, actual vs plan vs forecast, by type, by
   client, by project
@@ -354,6 +356,11 @@ check — which is exactly when one is worth having.
 **Second legal entity.** Schema is ready from `001` (`entity_id NOT NULL`
 everywhere). Activating CommSecurity Pty Ltd or RAVEN BOX is a UI change and
 a set of grants, not a migration. Do it when a real project needs it.
+
+**Source data comes from CSV exports, never the Drive markdown
+conversion.** The conversion drops rows and merges tabs; on 25 Aug it cost
+an hour and produced a $126,268.91 discrepancy that did not exist. Every
+importer takes CSV.
 
 **Rounding verification — done, 24 Aug 2026.** The three pinned FY27 totals
 are identical under half-up, banker's and truncation: no source value in the

@@ -79,7 +79,7 @@ class TestDryRun(Case):
 
     def test_it_finds_the_four_wrong_opening_balances(self):
         register = sr.read_register(CORRECTED)
-        _text, opening, _missing, _ret = sr.plan(self.db, register)
+        _text, opening, _missing, _ret, _d = sr.plan(self.db, register)
         self.assertEqual({name for _id, name, _o, _n in opening}, set(WRONG))
         self.assertTrue(all(new == 0 for _id, _n, _o, new in opening))
 
@@ -101,7 +101,7 @@ class TestDryRun(Case):
                           (victim["id"],))
             c.execute("DELETE FROM project WHERE id = ?", (victim["id"],))
         register = sr.read_register(CORRECTED)
-        _t, _o, missing, _ret = sr.plan(self.db, register)
+        _t, _o, missing, _ret, _d = sr.plan(self.db, register)
         self.assertIn(victim["name"], missing)
         self.run_sync("--apply", "--reason", "x")
         self.assertIsNone(self.db.query_one(
@@ -133,7 +133,7 @@ class TestCorrectingOpeningBalances(Case):
         """They are stood down for exactly as long as the correction takes.
         Leaving them off would quietly remove the guarantee."""
         self.run_sync("--apply", "--reason", "corrected at source")
-        for name in sr.TRIGGERS:
+        for name in Db.OPENING_TRIGGERS:
             self.assertEqual(self.db.scalar(
                 "SELECT COUNT(*) FROM sqlite_master WHERE name = ?", (name,)), 1)
         row = self.db.query_one(
@@ -146,13 +146,13 @@ class TestCorrectingOpeningBalances(Case):
     def test_the_triggers_come_back_even_if_a_correction_fails(self):
         """Otherwise one exception leaves the guarantee switched off."""
         register = sr.read_register(CORRECTED)
-        _t, opening, _m, _ret = sr.plan(self.db, register)
+        _t, opening, _m, _ret, _d = sr.plan(self.db, register)
         broken = [(999999, "no such project", 100, 200)] + opening
         try:
             sr.apply_opening(self.db, broken, "x", None)
         except Exception:
             pass
-        for name in sr.TRIGGERS:
+        for name in Db.OPENING_TRIGGERS:
             self.assertEqual(self.db.scalar(
                 "SELECT COUNT(*) FROM sqlite_master WHERE name = ?", (name,)), 1)
 
@@ -166,7 +166,7 @@ class TestCorrectingOpeningBalances(Case):
     def test_running_it_twice_finds_nothing_the_second_time(self):
         self.run_sync("--apply", "--reason", "x")
         register = sr.read_register(CORRECTED)
-        _t, opening, _m, _ret = sr.plan(self.db, register)
+        _t, opening, _m, _ret, _d = sr.plan(self.db, register)
         self.assertEqual(opening, [])
 
 
@@ -182,9 +182,45 @@ class TestRetentionTerms(Case):
         self.assertEqual(sr.retention_cap_bp(""), 0)
         self.assertEqual(sr.retention_cap_bp(None), 0)
 
+    def test_retention_on_prior_invoicing_is_counted(self):
+        """Those invoices were issued and the customer held retention
+        against them. On three of the seven the cap was reached before the
+        platform's window opened -- leaving it at zero would report $82,240
+        of held money as not held."""
+        self.run_sync("--apply", "--reason", "x")
+        held = self.db.scalar(
+            """SELECT SUM(cl.retention_cents) FROM claim_line cl
+               WHERE cl.is_opening_balance = 1""")
+        self.assertEqual(held, 8224036)          # $82,240.36
+
+    def test_it_is_capped_where_the_project_was_fully_invoiced(self):
+        self.run_sync("--apply", "--reason", "x")
+        row = self.db.query_one(
+            """SELECT r.* FROM v_po_retention_position r
+               JOIN project p ON p.id = r.project_id
+               WHERE p.name = 'Brennan Pl - ICN'""")
+        self.assertEqual(row["withheld_cents"], row["cap_cents"])
+        self.assertEqual(row["remaining_to_withhold_cents"], 0)
+
+    def test_the_derivation_is_audited_as_a_derivation(self):
+        """The workbook never recorded what was actually withheld, so this
+        is an inference and has to read as one."""
+        self.run_sync("--apply", "--reason", "x")
+        row = self.db.query_one(
+            "SELECT detail FROM audit_log WHERE action='retention_on_opening'")
+        self.assertIn("derived", row["detail"])
+        self.assertIn("not recorded in the workbook", row["detail"])
+
+    def test_dates_are_read_in_either_order(self):
+        self.assertEqual(sr.normalise_date("31/03/2027"), "2027-03-31")
+        self.assertEqual(sr.normalise_date("2027-03-31"), "2027-03-31")
+        self.assertEqual(sr.normalise_date("1/7/2027"), "2027-07-01")
+        self.assertIsNone(sr.normalise_date("next March"))
+        self.assertIsNone(sr.normalise_date(""))
+
     def test_it_finds_the_projects_carrying_retention(self):
         register = sr.read_register(CORRECTED)
-        _t, _o, _m, retention = sr.plan(self.db, register)
+        _t, _o, _m, retention, _d = sr.plan(self.db, register)
         names = {name for _id, name, _o2, new in retention if new}
         self.assertIn("Brennan Pl - ICN", names)
         self.assertTrue(all(new == 500 for _i, _n, _o2, new in retention if new))
@@ -209,7 +245,7 @@ class TestRetentionTerms(Case):
     def test_running_it_twice_finds_nothing_the_second_time(self):
         self.run_sync("--apply", "--reason", "x")
         register = sr.read_register(CORRECTED)
-        _t, _o, _m, retention = sr.plan(self.db, register)
+        _t, _o, _m, retention, _d = sr.plan(self.db, register)
         self.assertEqual(retention, [])
 
 

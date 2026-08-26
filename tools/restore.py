@@ -36,9 +36,9 @@ EXPECTED_TABLES = ("entity", "period", "users", "user_entity_role",
                    "audit_log", "project", "schema_migrations")
 
 # Validated 21 Aug 2026. Present only if the register has been imported.
-REGISTER_PO_CENTS = 723265700
+REGISTER_PO_CENTS = 723394200
 REGISTER_PRIOR_CENTS = 367040527
-REGISTER_OIH_CENTS = 356225173
+REGISTER_OIH_CENTS = 356353673
 
 
 class RestoreError(Exception):

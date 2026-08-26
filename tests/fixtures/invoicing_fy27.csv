@@ -57,7 +57,7 @@ Deployment of the ISP",Deployment - Configuration - All Systems,33.33%,"$39,333.
 40 Upper Heidelberg Road Ivanhoe - EMS,JN-6337,EMS,,Progress Claim,Installation on Site and KODE OS established,,"$3,000.00",Aug-26,,1620614,,,,2,FY27,"$6,726.00",Meridian Concepts Group
 11-27 Dorcas St - ICN,JN-6538,ICN,,Progress Claim #1,"Design / Engineering, 50% $10,500",,"$10,500.00",Aug-26,,702/1,,,,2,FY27,"$105,000.00",MSquared
 25-35 River Boulevard - ICN,JN-6537,ICN,PO-2315,Progress Claim #1,"Design / Engineering, 50% $15,025",,"$15,025.00",Aug-26,,1693632,,,,2,FY27,"$292,000.00",MSquared
-537 Malvern Rd – Mobile Repeater Design,JN-6817,ICN,,Completion Claim,,,"$17,000.00",Aug-26,,"Not Yet, invocie EOM ",,,,2,FY27,"$17,000.00",CoBild
+537 Malvern Rd – Mobile Repeater Design,JN-6817,ICN,,Completion Claim,,,"$17,000.00",Aug-26,,1693632,,,,2,FY27,"$17,000.00",CoBild
 570 Little Bourke St ICN,JN-692,ICN,,Progress Claim #2,"Project Management, 10% $3,145",,"$3,145.00",Aug-26,,,,,,2,FY27,"$345,000.00",Hickory
 PDNSW - SOC,TBA,NSW,,Monthly Claim,,,"$21,600.00",Aug-26,,INV-7583,,,,2,FY27,"$259,200.00",PDNSW
 6PSQ Level 1 FCR Card Reader Fault,JN-6849,NSW,,,,,,Aug-26,,,,,,2,FY27,$0.00,PDNSW
@@ -68,4 +68,6 @@ User Consolidation Software Tool,JN-6888,NSW,,,Integriti works towards Raven Das
 36 Wellington Services - Maintenance,JN-3579,ICN,SO7188975_255549,ICNmonthly Maintenance Works - Meraki Licenses,,,"$1,890.75",Aug-26,,,,,,2,FY27,"$22,689.00",Hines
 200 Vic - Fire Site Visit,JN-6834,IBP,PO8000793_255549,Site Visit - Fire Gateways,,,$400.00,Aug-26,,Inv No. 7586,,,,2,FY27,$400.00,ARAVest
 130 Lonsdale St - IBP,JN-2749,IBP,,Montly Claim,Monthly License OPEX,,"$2,916.70",Aug-26,,,,,,2,FY27,"$35,000.00",Charter Hall
-,,,,,,"$457,655.34",,,,,,,,,,,
+PDNSW - Maitland L1 South Low Batt,JN-6346,Service,,,"Panel showing low batt, coordiante technician to attend and replace battery",,$825.00,Aug-26,,INV-7596,,,,2,FY27,$825.00,PDNSW
+PDNSW - RGB Service works,JN-6232,NSW,,,,,$460.00,Aug-26,Approved,INV-7597,,,,2,FY27,$460.00,PDNSW
+,,,,,,"$458,940.34",,,,,,,,,,,

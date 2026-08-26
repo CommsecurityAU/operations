@@ -221,18 +221,44 @@ class TestLifecycle(Case):
 
 
 class TestSlippage(Case):
-    def test_moving_to_another_month_needs_a_reason(self):
-        """A forecast that is quietly rewritten always looks like it was
-        right. Slippage is the number forecasting accuracy is measured
-        against, so it has to be recorded."""
+    def test_moving_a_FORECAST_claim_needs_no_reason(self):
+        """Moving forecast work between months IS forecasting. Demanding a
+        justification for each one would make re-forecasting unusable, which
+        is the opposite of the point."""
         c = self.make()
+        status, body = self.call("PATCH", f"/api/claims/{c['id']}",
+                                 {"period_id": self.oct})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["changed"], ["period_id"])
+
+    def test_moving_a_COMMITTED_claim_needs_a_reason(self):
+        """Once a claim is due it has been committed to a month, and moving
+        it is slippage -- the number forecasting accuracy is measured
+        against. A forecast quietly rewritten always looks like it was
+        right."""
+        c = self.make()
+        self.move(c["id"], "due")
         status, body = self.call("PATCH", f"/api/claims/{c['id']}",
                                  {"period_id": self.oct})
         self.assertEqual(status, 400)
         self.assertIn("slippage", body["detail"]["reason"])
+        self.assertEqual(self.call("PATCH", f"/api/claims/{c['id']}",
+                                   {"period_id": self.oct,
+                                    "reason": "site access delayed"})[0], 200)
+
+    def test_even_an_unreasoned_move_is_recorded(self):
+        """No reason does not mean no record: the revision still shows the
+        month it came from, so re-forecasting remains reviewable."""
+        c = self.make()
+        self.call("PATCH", f"/api/claims/{c['id']}", {"period_id": self.oct})
+        _s, hist = self.call("GET", f"/api/claims/{c['id']}/history")
+        slip = [r for r in hist["revisions"] if r["field"] == "period_id"][0]
+        self.assertEqual(slip["old_value"], str(self.sep))
+        self.assertEqual(slip["new_value"], str(self.oct))
 
     def test_with_a_reason_it_moves_and_is_recorded(self):
         c = self.make()
+        self.move(c["id"], "due")
         status, body = self.call("PATCH", f"/api/claims/{c['id']}",
                                  {"period_id": self.oct,
                                   "reason": "site access delayed"})
@@ -294,6 +320,66 @@ class TestRetentionAtInvoice(Case):
         self.assertEqual(self.db.query_one(
             "SELECT * FROM v_po_retention_position WHERE customer_po_id = ?",
             (self.po_id,))["withheld_cents"], 0)
+
+
+class TestRetentionHeld(Case):
+    """The card at the top of the month view. Held-and-unreleased is a
+    POSITION; what a month withheld is a period figure and lives in the
+    table column. Putting a cumulative number under a monthly heading is
+    how a screen quietly lies."""
+
+    def setUp(self):
+        super().setUp()
+        self.db.set_retention_terms(self.project_id, 500, 1000, "split", 5000,
+                                    self.user["id"])
+
+    def invoice(self, claim, number="INV-1"):
+        self.move(claim["id"], "due")
+        self.move(claim["id"], "approved", approved_date="2026-09-20")
+        return self.move(claim["id"], "invoiced", invoice_number=number,
+                         invoiced_date="2026-09-22")
+
+    def test_nothing_held_before_anything_is_invoiced(self):
+        self.make()
+        _s, body = self.call("GET", f"/api/claims?period={self.sep}")
+        self.assertEqual(body["retention_held_cents"], 0)
+
+    def test_invoicing_puts_money_into_the_held_position(self):
+        c = self.make(amount_cents=10000000)
+        self.invoice(c)
+        _s, body = self.call("GET", f"/api/claims?period={self.sep}")
+        self.assertEqual(body["retention_held_cents"], 1000000)
+
+    def test_held_is_a_position_and_the_month_figure_is_not(self):
+        """A claim invoiced in September still shows as held when October is
+        selected, because the customer is still holding it."""
+        c = self.make(amount_cents=10000000, period_id=self.sep)
+        self.invoice(c)
+        self.make(period_id=self.oct, amount_cents=5000000)
+        _s, oct_view = self.call("GET", f"/api/claims?period={self.oct}")
+        self.assertEqual(oct_view["retention_held_cents"], 1000000)
+        self.assertEqual(oct_view["retention_withheld_cents"], 0)
+
+    def test_a_release_reduces_what_is_held(self):
+        c = self.make(amount_cents=10000000)
+        self.invoice(c)
+        with self.db._tx() as conn:
+            conn.execute(
+                """INSERT INTO claim_line (entity_id, project_id, customer_po_id,
+                       period_id, status, amount_cents, is_retention_release,
+                       created_ts)
+                   VALUES (1,?,?,?, 'invoiced', 500000, 1, 0)""",
+                (self.project_id, self.po_id, self.sep))
+        _s, body = self.call("GET", f"/api/claims?period={self.sep}")
+        self.assertEqual(body["retention_held_cents"], 500000)
+
+    def test_it_covers_only_the_projects_in_view(self):
+        """Filters scope it: the card must describe what is on screen."""
+        c = self.make(amount_cents=10000000, period_id=self.sep)
+        self.invoice(c)
+        _s, body = self.call(
+            "GET", f"/api/claims?period={self.sep}&project=999999")
+        self.assertEqual(body["retention_held_cents"], 0)
 
 
 class TestOpeningBalancesAreUntouchable(Case):

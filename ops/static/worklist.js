@@ -132,9 +132,9 @@ export async function render(root) {
           h("th", null, "Client"), h("th", null, "Type"),
           h("th", null, cls === "C" ? "Also on" : ""), h("th", null, ""))),
         h("tbody", null, issues.map((i) => h("tr", null,
-          h("td", null, i.project_name),
+          h("td", { class: "text-wide", title: i.project_name }, i.project_name),
           h("td", { class: "mono" }, i.raw_code),
-          h("td", { class: "muted" }, i.client),
+          h("td", { class: "muted text", title: i.client }, i.client),
           h("td", { class: "mono" }, i.type),
           // Only meaningful for class C. Five projects holding the string
           // "TBA" is not a shared code, and showing "5" there reads as one.

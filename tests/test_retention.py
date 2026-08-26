@@ -190,15 +190,112 @@ class TestRelease(Case):
         self.assertEqual(sum(s["amount_cents"] for s in schedule),
                          self.position(po)["held_cents"])
 
-    def test_a_missing_milestone_date_is_reported_as_unknown(self):
-        """An unknown release date is information. Inventing one puts a
-        number in a cash forecast that nobody can defend."""
+    def test_a_missing_dlp_date_is_DERIVED_from_practical_completion(self):
+        """A DLP typically ends 12 months after practical completion, so a
+        release date can be estimated rather than left blank -- but it is
+        flagged `estimated`, and never written to the project. A date nobody
+        agreed to becomes a fact the moment it is stored."""
         with self.db._tx() as c:
             c.execute("UPDATE project SET dlp_end_date = NULL WHERE id = ?",
                       (self.project_id,))
         po = self.make_po(policy="dlp")
         self.claim(po, CLAIM)
-        self.assertIsNone(self.db.retention_release_schedule(po)[0]["due_date"])
+        stage = self.db.retention_release_schedule(po)[0]
+        self.assertEqual(stage["due_date"], "2028-03-31")   # PC + 12 months
+        self.assertTrue(stage["estimated"])
+        self.assertIsNone(self.db.scalar(
+            "SELECT dlp_end_date FROM project WHERE id = ?", (self.project_id,)))
+
+    def test_a_real_dlp_date_is_never_flagged_as_estimated(self):
+        po = self.make_po(policy="dlp")
+        self.claim(po, CLAIM)
+        self.assertFalse(self.db.retention_release_schedule(po)[0]["estimated"])
+
+    def test_with_neither_date_the_release_is_still_unknown(self):
+        """Nothing to derive from. An unknown release date is information;
+        inventing one puts a number in a cash forecast nobody can defend."""
+        with self.db._tx() as c:
+            c.execute("""UPDATE project SET dlp_end_date = NULL,
+                             practical_completion_date = NULL WHERE id = ?""",
+                      (self.project_id,))
+        po = self.make_po(policy="dlp")
+        self.claim(po, CLAIM)
+        stage = self.db.retention_release_schedule(po)[0]
+        self.assertIsNone(stage["due_date"])
+        self.assertFalse(stage["estimated"])
+
+    def test_month_arithmetic_clamps_to_the_end_of_the_month(self):
+        """31 January plus one month is 28 February, not an error."""
+        self.assertEqual(self.db.add_months("2027-01-31", 1), "2027-02-28")
+        self.assertEqual(self.db.add_months("2028-01-31", 1), "2028-02-29")
+        self.assertEqual(self.db.add_months("2027-03-31", 12), "2028-03-31")
+        self.assertEqual(self.db.add_months("2026-12-15", 12), "2027-12-15")
+        self.assertIsNone(self.db.add_months(None, 12))
+
+
+class TestRetentionTerms(Case):
+    """The register states retention per PROJECT; the model holds it per PO."""
+
+    def test_terms_apply_to_every_po_on_the_project(self):
+        a = self.make_po(applies=0)
+        b = self.make_po(applies=0, amount=20000000)
+        self.db.set_retention_terms(self.project_id, 500, 1000, "split", 5000,
+                                    self.user["id"])
+        for po in (a, b):
+            row = self.position(po)
+            self.assertTrue(row["retention_applies"])
+            self.assertEqual(row["cap_bp"], 500)
+            self.assertEqual(row["rate_bp"], 1000)
+
+    def test_each_po_still_caps_independently(self):
+        """Which is what happens in practice when scope is split across
+        orders."""
+        a = self.make_po(applies=0)                      # $700k -> cap $35,000
+        b = self.make_po(applies=0, amount=20000000)     # $200k -> cap $10,000
+        self.db.set_retention_terms(self.project_id, 500, 1000, "split", 5000,
+                                    self.user["id"])
+        self.assertEqual(self.position(a)["cap_cents"], 3500000)
+        self.assertEqual(self.position(b)["cap_cents"], 1000000)
+
+    def test_a_zero_cap_removes_retention(self):
+        po = self.make_po()
+        self.db.set_retention_terms(self.project_id, 0, None, None, None,
+                                    self.user["id"])
+        row = self.position(po)
+        self.assertFalse(row["retention_applies"])
+        self.assertEqual(row["cap_cents"], 0)
+
+    def test_setting_the_same_terms_twice_changes_nothing(self):
+        self.make_po(applies=0)
+        first = self.db.set_retention_terms(self.project_id, 500, 1000,
+                                            "split", 5000, self.user["id"])
+        second = self.db.set_retention_terms(self.project_id, 500, 1000,
+                                             "split", 5000, self.user["id"])
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+    def test_it_is_audited(self):
+        self.make_po(applies=0)
+        self.db.set_retention_terms(self.project_id, 500, 1000, "split", 5000,
+                                    self.user["id"])
+        row = self.db.query_one(
+            "SELECT detail FROM audit_log WHERE action='retention_terms'")
+        self.assertIn("500bp", row["detail"])
+
+    def test_the_five_percent_split_matches_the_agreed_terms(self):
+        """5% cap, 10% per claim, half released at practical completion and
+        half at DLP end. On a $710,000 contract that is $35,500 held,
+        $17,750 at each milestone."""
+        po = self.make_po(applies=0, amount=71000000)
+        self.db.set_retention_terms(self.project_id, 500, 1000, "split", 5000,
+                                    self.user["id"])
+        self.assertEqual(self.position(po)["cap_cents"], 3550000)
+        for _ in range(4):
+            self.claim(po, 10000000)          # $100k claims, 10% each
+        self.assertEqual(self.position(po)["withheld_cents"], 3550000)
+        stages = self.db.retention_release_schedule(po)
+        self.assertEqual([s["amount_cents"] for s in stages],
+                         [1775000, 1775000])
 
     def test_releasing_reduces_what_is_held(self):
         """A release is an ordinary claim line, flagged -- so it forecasts,

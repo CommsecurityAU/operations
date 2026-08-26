@@ -20,6 +20,13 @@ them -- once a claim is invoiced it moves out of Future Invoicing.
 
 Nothing is written unless the reconciliation passes or `--accept-variance`
 is given deliberately.
+
+`--sync` runs it again later, ADDITIVELY: rows the platform does not have
+are created, and nothing existing is touched. That matters because once a
+claim is in the platform it starts to diverge on purpose -- statuses move,
+months slip, retention is withheld -- and a sync that overwrote would undo
+the work the platform is for. Anything that looks like a changed amount is
+reported for a human instead.
 """
 
 import argparse
@@ -167,20 +174,23 @@ def resolve(db, issued, planned):
     """Map names and months onto ids, collecting every failure at once."""
     projects = {r["name"]: r for r in db.query(
         "SELECT id, name, entity_id FROM project")}
+    folded = {k.casefold(): v for k, v in projects.items()}
     periods = {r["label"]: r["id"] for r in db.query(
         "SELECT id, label FROM period")}
     pos = collections.defaultdict(list)
     for r in db.query("SELECT id, project_id FROM customer_po"):
         pos[r["project_id"]].append(r["id"])
 
-    errors, resolved, needs_po, skipped = [], [], set(), []
+    errors, resolved, needs_po, skipped, spelling = [], [], set(), [], []
     for source, rows, month_col, status in (
             ("Invoicing", issued, "EOM", "invoiced"),
             ("Future Invoicing", planned, "EOM Cycle", "forecast")):
         for i, r in enumerate(rows, 2):
             name = r["Project"].strip()
             month = r[month_col].strip()
-            project = projects.get(name)
+            project = projects.get(name) or folded.get(name.casefold())
+            if project is not None and project["name"] != name:
+                spelling.append(f"{source}: {name!r} matched {project['name']!r}")
             if project is None:
                 amount = cents(r["Invoice Amount"])
                 if amount == 0:
@@ -209,6 +219,8 @@ def resolve(db, issued, planned):
                 needs_po.add((project["id"], name))
                 po_list = [None]
             resolved.append({
+                "_project_name": project["name"],
+                "_month": month,
                 "entity_id": project["entity_id"],
                 "project_id": project["id"],
                 # One PO per project after migration 003. When a project
@@ -224,7 +236,7 @@ def resolve(db, issued, planned):
                 "invoiced_date": None,
                 "source": source,
             })
-    return resolved, errors, sorted(needs_po), skipped
+    return resolved, errors, sorted(needs_po), skipped, spelling
 
 
 def double_counted(db):
@@ -274,7 +286,8 @@ def create_placeholder_pos(db, needs_po, actor_id):
 def load(db, resolved, actor_id):
     created = 0
     for row in resolved:
-        fields = {k: v for k, v in row.items() if k != "source"}
+        fields = {k: v for k, v in row.items()
+                  if k != "source" and not k.startswith("_")}
         invoice_number = fields.pop("invoice_number")
         status = fields.pop("status")
         fields["status"] = "forecast"
@@ -295,7 +308,7 @@ def load(db, resolved, actor_id):
 
 
 def report(issued, residue, planned, findings, resolved, beyond, needs_po,
-           skipped):
+           skipped, spelling):
     d = money.format
     out = ["",
            f"  Invoicing (issued)       {len(issued):>4} rows  "
@@ -321,6 +334,10 @@ def report(issued, residue, planned, findings, resolved, beyond, needs_po,
         out.append("  beyond the matrix (FY28+, no control total exists):")
         for m, v in beyond.items():
             out.append(f"    {m:8s} {d(v):>15}")
+    if spelling:
+        out.append("")
+        out.append(f"  {len(spelling)} project name(s) matched on spelling:")
+        out += [f"    {x}" for x in spelling]
     if skipped:
         out.append("")
         out.append(f"  {len(skipped)} zero-value rows skipped:")
@@ -335,6 +352,49 @@ def report(issued, residue, planned, findings, resolved, beyond, needs_po,
     return "\n".join(out)
 
 
+def natural_key(row):
+    """What makes a claim the same claim across two exports.
+
+    Project, month, task and amount. There is no id in the workbook, so this
+    is the closest thing to one -- and the comparison is case-insensitive on
+    the text, because `RGB Service works` and `RGB Service Works` are the
+    same row typed twice.
+    """
+    return (row["project_name"].strip().casefold(),
+            (row["month"] or "").strip().casefold(),
+            (row["task"] or "").strip().casefold(),
+            row["amount_cents"])
+
+
+def existing_keys(db):
+    rows = db.query(
+        """SELECT p.name AS project_name, pe.label AS month,
+                  COALESCE(cl.detail, '') AS task, cl.amount_cents
+           FROM claim_line cl
+           JOIN project p ON p.id = cl.project_id
+           LEFT JOIN period pe ON pe.id = cl.period_id
+           WHERE cl.is_opening_balance = 0""")
+    return collections.Counter(natural_key(dict(r)) for r in rows)
+
+
+def sync(db, resolved, actor_id):
+    """Create what is missing; touch nothing that exists."""
+    have = existing_keys(db)
+    created, skipped = [], 0
+    for row in resolved:
+        key = natural_key({"project_name": row["_project_name"],
+                           "month": row["_month"],
+                           "task": row.get("detail") or "",
+                           "amount_cents": row["amount_cents"]})
+        if have[key]:
+            have[key] -= 1
+            skipped += 1
+            continue
+        created.append(row)
+    n = load(db, created, actor_id)
+    return n, skipped, created
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--db", required=True)
@@ -342,6 +402,9 @@ def main(argv=None):
     ap.add_argument("--future", required=True)
     ap.add_argument("--matrix", required=True)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--sync", action="store_true",
+                    help="add rows the platform does not have; touch nothing "
+                         "that exists")
     ap.add_argument("--accept-variance", action="store_true",
                     help="import even though detail and matrix disagree")
     args = ap.parse_args(argv)
@@ -355,16 +418,18 @@ def main(argv=None):
 
     db = Db(args.db, MIGRATIONS)
     try:
-        if db.scalar("SELECT COUNT(*) FROM claim_line "
-                     "WHERE is_opening_balance = 0"):
-            print("ABORT: claims already imported; this importer is one-shot.",
+        already = db.scalar("SELECT COUNT(*) FROM claim_line "
+                            "WHERE is_opening_balance = 0")
+        if already and not args.sync:
+            print(f"ABORT: {already} claims already imported; this importer is "
+                  "one-shot. Use --sync to add only what is new.",
                   file=sys.stderr)
             return 2
         findings = reconcile(issued, planned, matrix, months)
         beyond = outside_control_total(planned, months)
-        resolved, errors, needs_po, skipped = resolve(db, issued, planned)
+        resolved, errors, needs_po, skipped, spelling = resolve(db, issued, planned)
         print(report(issued, residue, planned, findings, resolved, beyond,
-                     needs_po, skipped))
+                     needs_po, skipped, spelling))
 
         if errors:
             print("ABORT: rows that cannot be placed:\n  - "
@@ -387,8 +452,16 @@ def main(argv=None):
                 row["customer_po_id"] = by_project[row["project_id"]]
         if made:
             print(f"  created {len(made)} placeholder POs.")
-        created = load(db, resolved, actor_id)
-        print(f"  imported {created} claims.")
+        if args.sync:
+            created, unchanged, rows = sync(db, resolved, actor_id)
+            print(f"  {unchanged} claims already present, {created} added.")
+            for row in rows:
+                print(f"    {row['_project_name'][:38]:38s} "
+                      f"{row['_month']:8s} {money.format(row['amount_cents']):>13}"
+                      f"  {row['status']}")
+        else:
+            created = load(db, resolved, actor_id)
+            print(f"  imported {created} claims.")
         overlap = double_counted(db)
         if overlap:
             d = money.format

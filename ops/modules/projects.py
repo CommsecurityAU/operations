@@ -37,11 +37,15 @@ PROJECT_SELECT = """
            p.needs_resolution, p.project_lead, p.project_no, p.notes,
            p.client_id, p.type_id,
            COALESCE(pt.code, '(untyped)') AS type,
-           COALESCE(c.name, '(no client)') AS client
+           COALESCE(c.name, '(no client)') AS client,
+           -- Held and not yet released: a position, not a period figure.
+           COALESCE(r.held_cents, 0) AS retention_held_cents,
+           p.practical_completion_date, p.dlp_end_date
     FROM v_project_orders_in_hand v
     JOIN project p ON p.id = v.project_id
     LEFT JOIN project_type pt ON pt.id = p.type_id
     LEFT JOIN client c ON c.id = p.client_id
+    LEFT JOIN v_project_retention r ON r.project_id = p.id
 """
 
 

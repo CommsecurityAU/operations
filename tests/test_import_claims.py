@@ -27,13 +27,16 @@ INVOICING = os.path.join(FIX, "invoicing_fy27.csv")
 FUTURE = os.path.join(FIX, "future_invoicing_fy27.csv")
 MATRIX = os.path.join(FIX, "invoicing_by_month_fy27.csv")
 
-INVOICED_FY27 = 45765534      # $457,655.34, Jul-26 + Aug-26
+INVOICED_FY27 = 45894034      # $458,940.34, Jul-26 + Aug-26
 FORECAST = 320397674          # $3,203,976.74
 # The Invoicing tab has no status column and no overlap with Future
 # Invoicing: once a claim is invoiced it moves out. The earlier
 # "copy-forward residue" was an artifact of a lossy markdown export.
 RESIDUE = 0
-MISSING_FROM_FORECAST = 0     # the pivot reconciles to its own source, exactly
+# The pivot fixture predates the two Aug-26 invoices added on 26 Aug,
+# so it is $1,285 short. A stale pivot is exactly what this check is
+# for -- it says which side moved, and when.
+STALE_PIVOT = -128500
 
 
 class Case(unittest.TestCase):
@@ -91,7 +94,10 @@ class TestReconciliation(Case):
         and checking costs nothing."""
         issued, _r, planned, matrix, months = self.sources()
         findings = ic.reconcile(issued, planned, matrix, months)
-        self.assertEqual(findings, [])
+        self.assertEqual(sum(f["difference"] for f in findings), STALE_PIVOT)
+        self.assertEqual({f["project"] for f in findings},
+                         {"PDNSW - Maitland L1 South Low Batt",
+                          "PDNSW - RGB Service works"})
 
     def test_months_beyond_the_matrix_are_not_treated_as_differences(self):
         """The control total stops at the end of FY27; forward planning does
@@ -102,8 +108,11 @@ class TestReconciliation(Case):
         beyond = ic.outside_control_total(planned, months)
         self.assertIn("Jul-27", beyond)
 
-    def test_it_imports_cleanly_when_they_agree(self):
-        self.assertEqual(self.run_import("--dry-run"), 0)
+    def test_it_refuses_while_the_pivot_disagrees(self):
+        """Currently the pivot is stale by $1,285. Refusing is right: an
+        incomplete picture imported silently is one nobody can trust."""
+        self.assertEqual(self.run_import("--dry-run"), 1)
+        self.assertEqual(self.run_import("--accept-variance", "--dry-run"), 0)
 
 
 class TestPlacement(Case):
@@ -112,7 +121,7 @@ class TestPlacement(Case):
         a row. Silently dropping rows is how an import loses something that
         mattered."""
         issued, _r, planned, _m, _mo = self.sources()
-        _resolved, errors, _needs, skipped = ic.resolve(self.db, issued, planned)
+        _resolved, errors, _needs, skipped, _sp = ic.resolve(self.db, issued, planned)
         self.assertEqual(errors, [])
         self.assertTrue(any("Adhoc Service Calls" in s for s in skipped))
 
@@ -120,16 +129,62 @@ class TestPlacement(Case):
         """Maintenance is often billed against an SLA with no PO number.
         A placeholder at zero keeps the claim attached to something."""
         issued, _r, planned, _m, _mo = self.sources()
-        _resolved, _e, needs_po, _s = ic.resolve(self.db, issued, planned)
+        _resolved, _e, needs_po, _s, _sp = ic.resolve(self.db, issued, planned)
         names = [n for _id, n in needs_po]
         self.assertIn("Dover House - ICN Maintenance", names)
         self.assertEqual(len(needs_po), 6)
 
 
+class TestIncrementalSync(Case):
+    """Once a claim is in the platform it diverges on purpose -- statuses
+    move, months slip, retention is withheld. A sync that overwrote would
+    undo the work the platform exists to do."""
+
+    def setUp(self):
+        super().setUp()
+        self.assertEqual(self.run_import("--accept-variance"), 0)
+
+    def test_a_second_run_without_sync_is_refused(self):
+        self.assertEqual(self.run_import("--accept-variance"), 2)
+
+    def test_syncing_the_same_export_adds_nothing(self):
+        before = self.db.scalar("SELECT COUNT(*) FROM claim_line")
+        self.assertEqual(self.run_import("--sync", "--accept-variance"), 0)
+        self.assertEqual(self.db.scalar("SELECT COUNT(*) FROM claim_line"), before)
+
+    def test_it_leaves_work_already_done_alone(self):
+        """The point of additive-only: a claim moved to `due` stays there."""
+        row = self.db.query_one(
+            "SELECT id FROM claim_line WHERE status='forecast' LIMIT 1")
+        self.db.transition_claim(row["id"], "due", {}, None, None)
+        self.run_import("--sync", "--accept-variance")
+        self.assertEqual(self.db.scalar(
+            "SELECT status FROM claim_line WHERE id = ?", (row["id"],)), "due")
+
+    def test_a_slipped_claim_is_not_recreated_in_its_old_month(self):
+        """Slippage changes the month, which changes the natural key. The
+        row must not come back where it started."""
+        row = self.db.query_one(
+            """SELECT cl.id, cl.period_id, cl.amount_cents FROM claim_line cl
+               WHERE cl.status='forecast' AND cl.detail IS NOT NULL LIMIT 1""")
+        other = self.db.scalar(
+            "SELECT id FROM period WHERE id <> ? AND fy = 2027 LIMIT 1",
+            (row["period_id"],))
+        self.db.update_claim_line(row["id"], {"period_id": other}, None, "slipped")
+        before = self.db.scalar("SELECT COUNT(*) FROM claim_line")
+        self.run_import("--sync", "--accept-variance")
+        added = self.db.scalar("SELECT COUNT(*) FROM claim_line") - before
+        # It IS re-added: the workbook still says the old month, and the
+        # platform cannot tell slippage from a genuinely new line item.
+        # Recorded here because it is a real limitation, not a bug to be
+        # discovered during a month-end.
+        self.assertEqual(added, 1)
+
+
 class TestAfterImport(Case):
     def setUp(self):
         super().setUp()
-        self.assertEqual(self.run_import(), 0)
+        self.assertEqual(self.run_import("--accept-variance"), 0)
 
     def test_the_money_reconciles(self):
         invoiced = self.db.scalar(
@@ -147,7 +202,7 @@ class TestAfterImport(Case):
         self.assertEqual(
             self.db.scalar("SELECT SUM(orders_in_hand_cents) "
                            "FROM v_project_orders_in_hand"),
-            356225173 - INVOICED_FY27)
+            356353673 - INVOICED_FY27)
 
     def test_the_forecast_pipeline_landed(self):
         self.assertEqual(self.db.scalar(
@@ -173,7 +228,7 @@ class TestAfterImport(Case):
         self.assertEqual(overlap, [])
 
     def test_importing_twice_is_refused(self):
-        self.assertEqual(self.run_import(), 2)
+        self.assertEqual(self.run_import("--accept-variance"), 2)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # MANIFEST — where every file goes
 
-**As at:** 25 August 2026 · **503 tests** · pyright --strict clean
+**As at:** 26 August 2026 · **547 tests** · pyright --strict clean
 
 The `repo/` folder mirrors `C:\Dev\operations` exactly. Copy it over the top
 and the paths land correctly — no guessing which `main` is which.
@@ -108,11 +108,11 @@ secrets, TLS. `.gitignore` covers it.
 
 ```powershell
 cd C:\Dev\operations
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 503 OK
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 547 OK
 .\dev.ps1 -Stale                                             # running == disk?
 ```
 
-If the count is below 503, a test file did not land. If `-Stale` says STALE,
+If the count is below 547, a test file did not land. If `-Stale` says STALE,
 restart the server — Python loads a module once, so a running process can be
 several edits behind the working tree while every test passes.
 

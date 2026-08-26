@@ -597,6 +597,35 @@ class TestPermissions(Case):
         self.assertEqual(self.call("DELETE", f"/api/projects/{p['id']}")[0], 403)
 
 
+class TestRetentionOnTheRegister(Case):
+    def make(self, **over):
+        return self.call("POST", "/api/projects", self.valid(**over))[1]
+
+    def test_each_project_reports_what_is_held(self):
+        """So the card can be summed over whatever the filters leave."""
+        p = self.make()
+        with self.db._tx() as c:
+            c.execute("""UPDATE customer_po SET retention_applies=1,
+                             retention_rate_bp=1000, retention_cap_bp=500
+                         WHERE project_id=?""", (p["id"],))
+            c.execute("""INSERT INTO claim_line (entity_id, project_id,
+                             customer_po_id, status, amount_cents,
+                             retention_cents, created_ts)
+                         SELECT 1, ?, id, 'invoiced', 5000000, 500000, 0
+                         FROM customer_po WHERE project_id = ?""",
+                      (p["id"], p["id"]))
+        _s, body = self.call("GET", "/api/projects")
+        row = [r for r in body["projects"] if r["id"] == p["id"]][0]
+        self.assertEqual(row["retention_held_cents"], 500000)
+
+    def test_a_project_without_retention_reports_zero_not_null(self):
+        """A dashboard cell showing null is how #N/A got into the workbook."""
+        p = self.make()
+        _s, body = self.call("GET", "/api/projects")
+        row = [r for r in body["projects"] if r["id"] == p["id"]][0]
+        self.assertEqual(row["retention_held_cents"], 0)
+
+
 class TestReference(Case):
     def test_reference_returns_everything_a_form_needs(self):
         status, body = self.call("GET", "/api/reference")

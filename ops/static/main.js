@@ -2,11 +2,16 @@
 // stays a switch until there is a reason for it not to be.
 
 import { api, h, mount } from "./app.js";
-import * as projects from "./projects.js";
-import * as claims from "./claims.js";
-import * as worklist from "./worklist.js";
 
-const SCREENS = { projects, claims, worklist };
+// Screens load WHEN OPENED, not on every page. Statically importing all of
+// them meant the page weight was the sum of every module -- the projects
+// register paid for the invoicing grid it never showed. A dynamic import
+// is one line and the browser caches it after the first visit.
+const SCREENS = {
+  projects: () => import("./projects.js"),
+  claims: () => import("./claims.js"),
+  worklist: () => import("./worklist.js"),
+};
 
 async function boot() {
   const identity = document.getElementById("identity");
@@ -57,7 +62,8 @@ async function boot() {
     }
   } catch { /* a viewer with no grants; the nav simply shows no count */ }
 
-  const screen = SCREENS[name] || SCREENS.projects;
+  const load = SCREENS[name] || SCREENS.projects;
+  const screen = await load();
   await screen.render(view);
   mount(status, document.createTextNode(
     `ops \u00b7 ${new Date().toLocaleString("en-AU")}`));

@@ -54,6 +54,15 @@ const AUD = new Intl.NumberFormat("en-AU", {
 });
 
 export const fmt = {
+  // For export, not display: a spreadsheet needs a number, and "$1,234.56"
+  // arrives in Excel as text that will not sum.
+  plain(cents) {
+    if (cents === null || cents === undefined) return "";
+    const neg = cents < 0;
+    const whole = Math.trunc(Math.abs(cents) / 100);
+    const part = Math.abs(cents) % 100;
+    return `${neg ? "-" : ""}${whole}.${String(part).padStart(2, "0")}`;
+  },
   money(cents) {
     if (cents === null || cents === undefined) return "";
     return AUD.format(cents / 100);

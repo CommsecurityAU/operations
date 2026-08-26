@@ -157,6 +157,44 @@ correctable.
 
 ---
 
+## What changed 26 August
+
+**Retention is loaded and reconciling.** The register carries one number per
+project — the cap, as a percentage — and the rest is the standard agreement:
+10% withheld per claim until the cap, half released at practical completion
+and half at DLP end. Seven projects, **$115,029 of capacity**.
+
+**Retention on pre-FY27 invoicing is counted: $82,240.36.** Those invoices
+were issued and the customer held money against them; on three of the seven
+the cap was reached before the platform's window opened. The figure is
+DERIVED (rate x opening, capped) because the workbook never recorded what
+was actually withheld — so it is stored rather than computed on read, can be
+corrected when the real number is known, and its audit entry says
+*"derived ... (not recorded in the workbook)"* rather than stating it as
+fact. A test asserts that wording: an inference that reads like a fact is
+how a bad number survives.
+
+**Forecasting across months.** The invoicing grid loads a financial year and
+filters client-side on FY, month, project, type, client, status and
+retention state. The month cell IS the move control on a forecast row —
+change it and the claim moves, no dialog — because that is the activity, not
+an exception to it (ADR-32).
+
+**A DLP date is derived from practical completion + 12 months** where only
+PC is known, flagged `estimated`, and never written to the project. A date
+nobody agreed to becomes a fact the moment it is stored.
+
+**Tables use the screen.** `.content` had `max-width: 1200px` — a
+readability constraint borrowed from prose that was throttling every table
+and forcing a sideways scroll. Free-text columns truncate with an ellipsis
+and keep the full value in `title`.
+
+**CSV export** on both grids, exporting what is on screen: the filtered set,
+every page. Money leaves as `1234.56`, not `$1,234.56`, because a formatted
+string arrives in Excel as text that will not sum.
+
+---
+
 ## Open items
 
 0. **Install `tools/offbox_sync.sh` on the VM** (hourly cron). The restore
@@ -275,6 +313,12 @@ correctable.
 
 **Checks that were wrong about themselves**
 
+- A guardrail nobody has tried to break is a guarantee nobody has checked.
+  The filter-ordering test looked for `col.sortKey` ANYWHERE in
+  datatable.js; the header-sort code contains that string too, so breaking
+  the filter order left it green. Mutation-testing found it. Scope a check
+  to the function whose behaviour it describes.
+
 - N-1 runs the OLD TAG'S tests, which are frozen — so it fails when an old
   test hardcoded schema details or was flaky, neither of which is an
   incompatibility. Both happened on its first real run. The remedy is to tag
@@ -312,28 +356,34 @@ correctable.
 
 ## Resume point
 
-**Tomorrow, in order of value:**
+**Where STP-2 stands.** Schema, importers, the month view, retention and
+forecasting are done and reconciling. Two build items remain, then the
+phase closes:
 
-1. **Schedule UI.** 36 Wellington, 200 Victoria and 627 Chapel each carry
-   twelve hand-entered rows. The model is built and tested; there is no
-   screen to set one up. This is the one thing here the workbook genuinely
-   cannot do, and the only item that removes recurring work rather than
-   recording it.
-2. **Retention terms per PO.** Every PO currently reads
-   `retention_applies = 0` because there is no way to set them. Richard is
-   assigning these per project.
-3. **PO management** — a second PO on a project, and a variation recorded as
-   a revision. `update_project` currently moves the migrated PO as a side
-   effect; that is the expand-window compromise and should not outlive it.
+1. **Schedule UI.** `36 Wellington`, `200 Victoria - ICN Maintenance` and
+   `627 Chapel` each carry twelve hand-entered rows a year. The model is
+   built, tested and idempotent; there is no screen to set one up. This is
+   the largest remaining reduction in manual work and the one thing here the
+   workbook genuinely cannot do.
+2. **PO management** — a second PO on a project, and a variation recorded as
+   a `customer_po_revision`. `update_project` currently moves the migrated
+   PO as a side effect; that is the expand-window compromise and should not
+   outlive it.
 
-**Outside the phase, and now more pressing:** deployment. The platform holds
-real invoicing data and there is still no off-box backup. The deferral note
-in CS-OP-RUN-002 said the deadline was not the VM but "the moment STP-2 can
-carry real data" — that moment has arrived.
+**Then the contraction migration**, which removes
+`project.purchase_order_cents` and `project.invoiced_prior_cents` one
+release after `003` has been stable, and with it the dual-write in the
+importer and in `create_project`.
 
-**Small:** `222 Bourke St` and `Samma Pl` exist in the workbook, not the
-platform. They need creating through the UI because each needs a job-code
-decision (ADR-28).
+**Outside the phase and increasingly overdue: deployment.** The platform
+holds 202 imported claims, the FY27 forward position, retention terms on
+seven projects, and corrections that exist nowhere else. **There is still no
+off-box backup.** The only copy is one laptop's `data/ops.db`.
+
+**Small:** `matthew parnell` appears in lower case among otherwise
+capitalised project leads; the filter will treat a differently-cased
+spelling as a separate value. Fix in the sheet and `sync_register.py` will
+carry it through.
 
 ---
 
@@ -343,9 +393,8 @@ decision (ADR-28).
 cd C:\Dev\operations
 .\dev.ps1                 # serve on 5173
 .\dev.ps1 -Stale          # is the running server current?
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 503
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 547
 py tools\drift_check.py --csv "<register>.csv" --db data\ops.db
 ```
 
-Code fingerprint at end of day: `7b36b58bd776`. Migrations applied: `001`
-through `005`.
+Code fingerprint: `284c0ec39f69`. Migrations applied: `001` through `005`.

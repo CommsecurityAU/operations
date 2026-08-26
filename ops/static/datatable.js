@@ -9,7 +9,7 @@
 // and close an open select the moment you touched it — the sort of bug that
 // makes a screen feel broken without anyone being able to say why.
 
-import { h, mount } from "./app.js";
+import { fmt, h, mount } from "./app.js";
 
 export function datatable(model) {
   const state = {
@@ -37,9 +37,25 @@ export function datatable(model) {
   function multiselect(key) {
     const col = model.columns.find((c) => c.key === key);
     const label = col ? col.label : key;
-    const values = [...new Set(model.rows.map((r) => r[key])
-      .filter((v) => v !== null && v !== ""))].sort();
-    const chosen = new Set();
+
+    // Filter values sort by the column's sortKey where it has one, so
+    // months read Jul-26, Aug-26, Sep-26 rather than Apr, Aug, Dec. A list
+    // of months in alphabetical order is a list nobody can scan.
+    const order = new Map();
+    for (const row of model.rows) {
+      const value = row[key];
+      if (value === null || value === undefined || value === "") continue;
+      const rank = col && col.sortKey ? row[col.sortKey] : value;
+      const seen = order.get(String(value));
+      if (seen === undefined || rank < seen) order.set(String(value), rank);
+    }
+    const values = [...order.keys()].sort((a, b) => {
+      const x = order.get(a);
+      const y = order.get(b);
+      return x < y ? -1 : x > y ? 1 : 0;
+    });
+
+    const chosen = new Set((model.filterDefaults || {})[key] || []);
     state.filters[key] = chosen;
 
     const caption = document.createTextNode(`All ${label.toLowerCase()}`);
@@ -51,7 +67,11 @@ export function datatable(model) {
 
     const boxes = values.map((v) => {
       const input = h("input", {
-        type: "checkbox", value: String(v),
+        // Named explicitly, not only by the wrapping <label>: a screen
+        // reader announcing the checkbox on its own should still say what
+        // it filters.
+        type: "checkbox", value: String(v), "aria-label": String(v),
+        checked: chosen.has(String(v)),
         onchange: (e) => {
           if (e.target.checked) chosen.add(String(v)); else chosen.delete(String(v));
           state.page = 0;
@@ -104,18 +124,59 @@ export function datatable(model) {
 
   const filterEls = (model.filters || []).map(multiselect);
 
+  // Export what is ON SCREEN: the filtered set, every page of it. Exporting
+  // the whole table regardless of filters would hand someone a file that
+  // does not match the figures they were just looking at.
+  function toCsv(rows) {
+    const cell = (v) => {
+      const text = v === null || v === undefined ? "" : String(v);
+      return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    };
+    const lines = [model.columns.map((c) => cell(c.label)).join(",")];
+    for (const row of rows) {
+      lines.push(model.columns.map((c) => {
+        const raw = row[c.key];
+        // Money goes out as a number, never a formatted string.
+        return cell(c.key.endsWith("_cents") ? fmt.plain(raw) : raw);
+      }).join(","));
+    }
+    return lines.join("\r\n");
+  }
+
+  const exportBtn = model.exportName
+    ? h("button", { type: "button", title: "Download the rows currently shown" },
+        "Export CSV")
+    : null;
+  if (exportBtn) {
+    exportBtn.addEventListener("click", () => {
+      const blob = new Blob(["\uFEFF" + toCsv(visible())],
+                            { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const link = h("a", { href: url, download: `${model.exportName}-${stamp}.csv` });
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    });
+  }
+
   const controls = h("div", { class: "controls" },
     search, filterEls,
-    h("span", { class: "spacer" }), count, prev, next);
+    h("span", { class: "spacer" }), count, exportBtn, prev, next);
 
   function headerCell(col) {
-    const active = state.sortKey === col.key;
+    const active = state.sortKey === (col.sortKey || col.key);
     return h("th", {
       class: col.align === "right" ? "num" : null,
       "aria-sort": active ? (state.sortDir === 1 ? "ascending" : "descending") : "none",
       onclick: () => {
-        if (state.sortKey === col.key) state.sortDir = -state.sortDir;
-        else { state.sortKey = col.key; state.sortDir = 1; }
+        // A column may sort on a different field from the one it shows:
+        // `Sep-26` reads well and sorts alphabetically, which puts April
+        // first. The month sorts on its start date instead.
+        const key = col.sortKey || col.key;
+        if (state.sortKey === key) state.sortDir = -state.sortDir;
+        else { state.sortKey = key; state.sortDir = 1; }
         state.page = 0;
         paint();
       },
@@ -180,7 +241,12 @@ export function datatable(model) {
           const text = col.fmt ? col.fmt(raw, row) : (raw ?? "");
           const cls = [col.align === "right" ? "num" : null, col.cls ? col.cls(raw, row) : null]
             .filter(Boolean).join(" ");
-          return h("td", { class: cls || null }, text instanceof Node ? text : String(text));
+          // A truncated cell keeps its full value on hover, so narrowing a
+          // column never loses information -- it only stops one long value
+          // pushing every column after it off the screen.
+          const title = cls.includes("text") ? String(raw ?? "") : null;
+          return h("td", { class: cls || null, title },
+                   text instanceof Node ? text : String(text));
         })));
     }
 

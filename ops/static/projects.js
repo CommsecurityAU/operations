@@ -13,11 +13,13 @@ let pending = null;
 const zero = (v) => (v === 0 ? "zero" : null);
 
 const COLUMNS = [
-  { key: "name", label: "Project", cls: () => "link" },
+  { key: "name", label: "Project", cls: () => "link text-wide" },
   { key: "job_code", label: "Job code", cls: () => "mono" },
-  { key: "client", label: "Client", cls: () => "muted" },
+  { key: "client", label: "Client", cls: () => "muted text" },
   { key: "type", label: "Type", cls: () => "mono" },
   { key: "status", label: "Status", cls: () => "muted" },
+  { key: "project_lead", label: "Lead", cls: () => "muted text",
+    fmt: (v) => v || "\u2013" },
   { key: "purchase_order_cents", label: "Contract", align: "right",
     fmt: fmt.moneyDash, cls: (v) => ["secondary", zero(v)].filter(Boolean).join(" ") },
   { key: "invoiced_prior_cents", label: "Invoiced prior", align: "right",
@@ -94,6 +96,7 @@ export async function render(root) {
     contract: figure("Contract value"),
     prior: figure("Invoiced prior"),
     oih: figure("Orders in hand", "is-primary"),
+    retention: figure("Retention held"),
     flagged: figure("Flagged for review", "is-attention"),
   };
   const scope = document.createTextNode("FY27");
@@ -107,6 +110,11 @@ export async function render(root) {
     figures.contract.set(fmt.money(total("purchase_order_cents")));
     figures.prior.set(fmt.money(total("invoiced_prior_cents")));
     figures.oih.set(fmt.money(total("orders_in_hand_cents")));
+    // Money the customer is holding, not yet released. Hidden when there
+    // is none, so it never reads as a zero that means something.
+    const held = total("retention_held_cents");
+    figures.retention.set(fmt.money(held));
+    figures.retention.el.hidden = held === 0;
     figures.flagged.set(fmt.num(flagged));
     // Say plainly when the figures describe a subset. A total that silently
     // means something narrower than its label is how a dashboard misleads.
@@ -131,16 +139,20 @@ export async function render(root) {
     notice,
     h("div", { class: "figures" },
       figures.projects.el, figures.contract.el, figures.prior.el,
-      figures.oih.el, figures.flagged.el),
+      figures.oih.el, figures.retention.el, figures.flagged.el),
     datatable({
       columns: COLUMNS,
       rows: all,
-      filters: ["type", "status", "client"],
+      // The same set as Invoicing, less the two that cannot apply: a
+      // project has no financial year or month of its own -- it spans them.
+      // Filtering the register by FY would be filtering by nothing.
+      filters: ["name", "type", "status", "client", "project_lead"],
       searchKeys: ["name", "job_code", "client", "project_lead"],
       onVisible: summarise,
       rowClass: (r) => (r.needs_resolution ? "flagged" : null),
       // Read-only users get no click affordance at all, rather than a row
       // that opens a form they cannot save.
       onRowClick: canWrite ? openForm : null,
+      exportName: "project-register",
     })));
 }

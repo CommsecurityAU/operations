@@ -59,7 +59,7 @@ class TestCheck(Base):
     def test_reports_the_register_and_that_it_balances(self):
         self.with_register()
         f = restore_mod.check(self.snap())
-        self.assertEqual(f["register"]["projects"], 63)
+        self.assertEqual(f["register"]["projects"], 65)
         self.assertEqual(f["register"]["oih_cents"], restore_mod.REGISTER_OIH_CENTS)
         self.assertTrue(f["register"]["balances"])
 

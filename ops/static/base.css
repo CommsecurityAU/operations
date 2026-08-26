@@ -84,7 +84,11 @@ a:hover { text-decoration: underline; }
  * travel across empty space from the project name to its figures. Cap the
  * content and let the table scroll inside its own box, so a wide table can
  * never push the page out and clip the top bar. */
-.content { max-width: 1200px; }
+/* No horizontal cap. A table with eight columns on a wide screen should
+ * use the screen -- capping it at 1200px forced a sideways scroll to read
+ * columns that would otherwise have fitted. Prose blocks set their own
+ * measure (`max-width: 70ch`) where readability actually needs one. */
+.content { width: 100%; }
 
 .statusbar {
   display: flex;
@@ -182,6 +186,21 @@ button { cursor: pointer; background: var(--s-2); }
 button:hover:not(:disabled) { background: var(--s-3); }
 button:disabled { color: var(--t-2); cursor: default; }
 button.primary { border-color: var(--accent-dim); color: var(--accent); }
+
+/* The month cell IS the move control on a forecast row, so it should read
+ * as a value that happens to be editable rather than as a form field
+ * shouting for attention. */
+select.month-move {
+  font-family: var(--font-data);
+  font-size: var(--fs-small);
+  height: calc(var(--h-control) - 6px);
+  padding: 0 var(--u);
+  background: transparent;
+  border-color: transparent;
+  color: var(--t-0);
+}
+select.month-move:hover,
+select.month-move:focus { border-color: var(--accent-dim); color: var(--accent); }
 
 /* -------------------------------------------------- multi-select filter */
 .filter { position: relative; }
@@ -283,6 +302,23 @@ tbody td {
   padding: var(--u2) var(--u3);
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
+}
+
+/* Free text -- a claim's detail, a project's note -- is the one thing that
+ * can be arbitrarily long, and nowrap made ONE long cell push every column
+ * after it off the screen. Truncate with an ellipsis and keep the full text
+ * in `title`, so nothing is lost and nothing else moves. */
+tbody td.text {
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+tbody td.text-wide { max-width: 40ch; }
+
+/* On a screen wide enough to afford it, let the long columns breathe. */
+@media (min-width: 1500px) {
+  tbody td.text { max-width: 40ch; }
+  tbody td.text-wide { max-width: 64ch; }
 }
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover td { background: var(--s-3); }

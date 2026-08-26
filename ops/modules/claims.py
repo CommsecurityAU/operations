@@ -58,11 +58,25 @@ CLAIM_SELECT = """
            p.name AS project_name, p.job_code,
            po.po_number,
            pe.label AS period_label, pe.fy_label, pe.month_end,
+           pe.fy, pe.month_start,
+           COALESCE(pt.code, '(untyped)') AS type,
+           -- Retention as a STATE, because an amount cannot be filtered:
+           -- a multiselect of "$1,896.00, $2,500.00, ..." is unusable.
+           -- Three values, because "applies but nothing withheld yet" is
+           -- exactly what you look for when forecasting cash.
+           CASE
+             WHEN cl.retention_cents > 0 THEN 'Withheld'
+             WHEN EXISTS (SELECT 1 FROM customer_po po2
+                          WHERE po2.project_id = cl.project_id
+                            AND po2.retention_applies = 1) THEN 'Applies'
+             ELSE 'None'
+           END AS retention_state,
            COALESCE(c.name, '(no client)') AS client
     FROM claim_line cl
     JOIN project p ON p.id = cl.project_id
     LEFT JOIN customer_po po ON po.id = cl.customer_po_id
     LEFT JOIN period pe ON pe.id = cl.period_id
+    LEFT JOIN project_type pt ON pt.id = p.type_id
     LEFT JOIN client c ON c.id = p.client_id
 """
 
@@ -174,6 +188,12 @@ def register(router: Router, db: Db) -> None:
         if q.get("period"):
             where.append("cl.period_id = ?")
             params.append(q["period"][0])
+        # A financial year, not a month: forecasting means looking across
+        # months and moving work between them, which one month at a time
+        # cannot show.
+        if q.get("fy"):
+            where.append("pe.fy = ?")
+            params.append(q["fy"][0])
         if q.get("project"):
             where.append("cl.project_id = ?")
             params.append(q["project"][0])
@@ -184,13 +204,35 @@ def register(router: Router, db: Db) -> None:
         rows = db.query(
             f"{CLAIM_SELECT} WHERE {' AND '.join(where)} "
             "ORDER BY pe.month_start, p.name", tuple(params))
+        # Retention HELD is a position, not a period figure: withheld less
+        # released, for the projects in view. The per-claim column already
+        # shows what this month withheld, and conflating the two would put a
+        # cumulative number under a monthly heading.
+        held = 0
+        project_ids = {r["project_id"] for r in rows}
+        if project_ids:
+            marks = ",".join("?" * len(project_ids))
+            held = db.scalar(
+                f"""SELECT COALESCE(SUM(held_cents), 0) FROM v_project_retention
+                    WHERE project_id IN ({marks})""", tuple(project_ids)) or 0
+        # Held per project, so the grid can sum it over whatever the
+        # filters leave without counting a project once per claim.
+        by_project = {}
+        if project_ids:
+            marks2 = ",".join("?" * len(project_ids))
+            by_project = {r["project_id"]: r["held_cents"] for r in db.query(
+                f"""SELECT project_id, held_cents FROM v_project_retention
+                    WHERE project_id IN ({marks2}) AND held_cents <> 0""",
+                tuple(project_ids))}
         return 200, {
             "claims": rows,
+            "retention_by_project": by_project,
             "totals": {
                 s: sum(r["amount_cents"] for r in rows if r["status"] == s)
                 for s in STATUSES
             },
-            "retention_cents": sum(r["retention_cents"] for r in rows),
+            "retention_withheld_cents": sum(r["retention_cents"] for r in rows),
+            "retention_held_cents": held,
             "transitions": {k: sorted(v) for k, v in TRANSITIONS.items()},
         }
 
@@ -230,13 +272,19 @@ def register(router: Router, db: Db) -> None:
         if errors:
             raise HttpError(400, "validation failed", errors)
 
-        # Moving a claim to another month is slippage. It is allowed, and it
-        # is recorded -- a forecast that is quietly rewritten always looks
-        # like it was right.
-        if ("period_id" in fields and fields["period_id"] != row["period_id"]
+        # Moving a FORECAST claim between months is planning, not slippage --
+        # it is the whole activity. Requiring a justification for each one
+        # would make re-forecasting unusable, which is the opposite of the
+        # point. Once a claim is due or approved it has been committed to a
+        # month, and moving it IS slippage: that needs a reason, because a
+        # forecast quietly rewritten always looks like it was right.
+        moving = ("period_id" in fields
+                  and fields["period_id"] != row["period_id"])
+        if (moving and row["status"] != "forecast"
                 and not (payload.get("reason") or "").strip()):
             raise HttpError(400, "validation failed", {
-                "reason": "moving a claim to another month is slippage; say why"})
+                "reason": f"this claim is {row['status']}, so moving it is "
+                          "slippage; say why"})
 
         result = db.update_claim_line(claim_id, fields, user["id"],
                                       (payload.get("reason") or "").strip() or None)

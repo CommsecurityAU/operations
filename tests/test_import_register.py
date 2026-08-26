@@ -25,10 +25,10 @@ MIGRATIONS = os.path.join(ROOT, "ops", "migrations")
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "project_register_fy27.csv")
 
 # --- pinned known-good values -------------------------------------------
-PROJECTS = 63
-PO_CENTS = 723265700          # $7,232,657.00
+PROJECTS = 65
+PO_CENTS = 723394200          # $7,233,942.00
 PRIOR_CENTS = 367040527       # $3,670,405.27
-ORDERS_IN_HAND_CENTS = 356225173  # $3,562,251.73  <- FY27 opening position
+ORDERS_IN_HAND_CENTS = 356353673  # $3,563,536.73  <- FY27 opening position
 OPENING_ROWS = 25
 PERIOD_ROWS = 144             # FY24..FY35
 
@@ -122,7 +122,7 @@ class TestMigration(Base):
 class TestMoneyParsing(unittest.TestCase):
     def test_cents_are_exact(self):
         for raw, want in [("$1,234.56", 123456), ("$0.00", 0), ("", 0), ("-", 0),
-                          ("$700,000", 70000000), ("$3,562,251.73", 356225173),
+                          ("$700,000", 70000000), ("$3,563,536.73", 356353673),
                           ("$45,361", 4536100), ("($550.00)", -55000)]:
             self.assertEqual(imp.cents(raw), want, raw)
 

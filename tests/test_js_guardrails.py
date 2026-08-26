@@ -154,16 +154,165 @@ class TestOneMoneyConversion(unittest.TestCase):
         self.assertIn('.split(".")', body)
 
 
+class TestTablesUseTheScreen(unittest.TestCase):
+    """A table with eight columns on a wide screen should use the screen.
+
+    A fixed `max-width` on the content block forced a sideways scroll to
+    read columns that would otherwise have fitted -- and the scroll was the
+    only symptom, so it read as "the table is too wide" rather than "the
+    page is artificially narrow"."""
+
+    def test_the_content_block_is_not_capped(self):
+        css = code_only(read(os.path.join(STATIC, "base.css")))
+        block = css.split(".content")[1].split("}")[0]
+        self.assertNotIn("max-width", block)
+
+    def test_horizontal_scrolling_is_still_available_for_narrow_screens(self):
+        """Removing the cap must not remove the fallback: on a phone the
+        table genuinely does not fit, and scrolling beats crushing it."""
+        css = code_only(read(os.path.join(STATIC, "base.css")))
+        self.assertIn("overflow-x: auto", css)
+
+    def test_free_text_columns_are_truncated_not_left_to_run(self):
+        """One long detail used to push every column after it off screen."""
+        css = code_only(read(os.path.join(STATIC, "base.css")))
+        self.assertIn("text-overflow: ellipsis", css)
+
+    def test_a_truncated_cell_keeps_its_full_value_on_hover(self):
+        """Narrowing a column must not lose information."""
+        body = code_only(read(os.path.join(STATIC, "datatable.js")))
+        self.assertIn("title", body)
+
+
+def static_imports(name):
+    """Which modules a file pulls in with a STATIC import.
+
+    Dynamic `import()` is deliberately not followed: that is the mechanism
+    that keeps a screen off every other screen's page.
+    """
+    body = code_only(read(os.path.join(STATIC, name)))
+    return set(re.findall(r'^\s*import[^;]*?from\s+"\./([\w.]+\.js)"',
+                          body, re.M))
+
+
+def bundle(entry, seen=None):
+    """Everything the browser must fetch to run `entry`."""
+    seen = seen if seen is not None else set()
+    if entry in seen:
+        return seen
+    seen.add(entry)
+    for dep in static_imports(entry):
+        bundle(dep, seen)
+    return seen
+
+
+class TestFilterValueOrder(unittest.TestCase):
+    """A list of months in alphabetical order is a list nobody can scan.
+
+    `Apr-27, Aug-26, Dec-26, Feb-27` is technically sorted and practically
+    useless, and it is what you get by default because the values are
+    strings.
+    """
+
+    def test_filter_values_sort_by_the_column_sort_key(self):
+        """Scoped to the multiselect function, not the whole file.
+
+        A first version of this test looked for `col.sortKey` anywhere in
+        datatable.js -- which the header-sort code also contains, so
+        breaking the FILTER order left the test green. Mutation-testing it
+        is what showed that; a guardrail nobody has tried to break is a
+        guarantee nobody has checked.
+        """
+        body = code_only(read(os.path.join(STATIC, "datatable.js")))
+        start = body.index("function multiselect")
+        fn = body[start:body.index("const filterEls", start)]
+        self.assertIn("col.sortKey", fn)
+        self.assertNotIn("]).sort()", fn)
+
+    def test_a_column_may_sort_on_a_different_field_than_it_shows(self):
+        """`Sep-26` reads well and sorts alphabetically; the month sorts on
+        its start date instead."""
+        body = code_only(read(os.path.join(STATIC, "datatable.js")))
+        self.assertIn("col.sortKey || col.key", body)
+
+    def test_the_month_column_declares_one(self):
+        body = code_only(read(os.path.join(STATIC, "claims.js")))
+        self.assertIn('sortKey: "month_start"', body)
+
+
+class TestCsvExport(unittest.TestCase):
+    def test_it_exports_what_is_visible_not_the_whole_table(self):
+        """Handing someone a file that does not match the figures they were
+        just looking at is worse than not offering the download."""
+        body = code_only(read(os.path.join(STATIC, "datatable.js")))
+        self.assertIn("toCsv(visible())", body)
+
+    def test_money_leaves_as_a_number(self):
+        """`$1,234.56` arrives in Excel as text that will not sum."""
+        body = code_only(read(os.path.join(STATIC, "datatable.js")))
+        self.assertIn("fmt.plain", body)
+        self.assertNotIn("fmt.money(raw)", body)
+
+    def test_the_cents_conversion_still_lives_only_in_app_js(self):
+        """fmt.plain divides by 100; it belongs with the other money code,
+        not scattered into whatever needed it."""
+        body = code_only(read(os.path.join(STATIC, "app.js")))
+        self.assertIn("plain(cents)", body)
+
+    def test_values_containing_commas_and_quotes_are_escaped(self):
+        """A project named `Smith, Jones & Co` would otherwise shift every
+        column after it by one -- silently, in a file someone reconciles."""
+        body = code_only(read(os.path.join(STATIC, "datatable.js")))
+        self.assertIn('replace(/"/g', body)
+
+
 class TestBudgets(unittest.TestCase):
+    """The budget is what ONE PAGE weighs, not what the folder weighs.
+
+    Screens are loaded dynamically, so the register does not pay for the
+    invoicing grid it never shows. If that stops being true the sum creeps
+    back and this gate has to catch it, which is why it walks the import
+    graph rather than adding up files.
+    """
+
+    SHELL = "main.js"
+    SCREENS = ("projects.js", "claims.js", "worklist.js")
+
+    def size(self, names):
+        return sum(os.path.getsize(os.path.join(STATIC, n)) for n in names)
+
     def test_each_js_file_is_under_the_page_budget(self):
         for name, path in static_files((".js",)):
             self.assertLess(os.path.getsize(path), JS_PAGE_BUDGET, name)
 
-    def test_total_js_is_under_the_page_budget(self):
-        """Every module loads on every page today, so the page weight is the
-        sum, not the largest file."""
-        total = sum(os.path.getsize(p) for _n, p in static_files((".js",)))
-        self.assertLess(total, JS_PAGE_BUDGET, f"{total} bytes of JS")
+    def test_the_heaviest_page_is_under_the_budget(self):
+        shell = bundle(self.SHELL)
+        worst, worst_name = 0, None
+        for screen in self.SCREENS:
+            weight = self.size(shell | bundle(screen))
+            if weight > worst:
+                worst, worst_name = weight, screen
+        self.assertLess(worst, JS_PAGE_BUDGET,
+                        f"{worst_name} page is {worst} bytes")
+
+    def test_screens_are_loaded_dynamically_not_statically(self):
+        """The mechanism the budget depends on. A static import of a screen
+        in the shell puts it on every page again, and the only symptom would
+        be a slow first paint that nobody attributes to this."""
+        shell_deps = static_imports(self.SHELL)
+        for screen in self.SCREENS:
+            self.assertNotIn(screen, shell_deps)
+        body = code_only(read(os.path.join(STATIC, self.SHELL)))
+        for screen in self.SCREENS:
+            self.assertIn(f'import("./{screen}")', body)
+
+    def test_no_screen_imports_another_screen(self):
+        """Otherwise opening one drags in a second, and the graph stops
+        describing what a page costs."""
+        for screen in self.SCREENS:
+            for other in self.SCREENS:
+                if other != screen:
+                    self.assertNotIn(other, static_imports(screen))
 
 
 class TestTokensAreTheOnlySourceOfColour(unittest.TestCase):

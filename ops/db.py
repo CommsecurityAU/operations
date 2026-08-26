@@ -13,6 +13,7 @@ Handlers never write SQL. Every mutation is a `Db` method whose body runs in
 `query()`. Never hold the write lock across anything slow.
 """
 
+import contextlib
 import os
 import sqlite3
 import threading
@@ -885,16 +886,40 @@ class Db:
         held = po["held_cents"]
         if held <= 0:
             return []
+        # A DLP typically ends 12 months after practical completion. Where
+        # only PC is known, the release date is DERIVED and SAID TO BE --
+        # never written to the project, because a date nobody agreed to
+        # becomes a fact the moment it is stored.
+        dlp_date, dlp_estimated = po["dlp_end_date"], False
+        if dlp_date is None and po["practical_completion_date"]:
+            dlp_date = self.add_months(po["practical_completion_date"], 12)
+            dlp_estimated = dlp_date is not None
         if po["release_policy"] == "split" and po["release_split_bp"]:
             at_pc = money.apply_rate(held, po["release_split_bp"])
             return [
                 {"stage": "practical_completion", "amount_cents": at_pc,
-                 "due_date": po["practical_completion_date"]},
+                 "due_date": po["practical_completion_date"],
+                 "estimated": False},
                 {"stage": "dlp_end", "amount_cents": held - at_pc,
-                 "due_date": po["dlp_end_date"]},
+                 "due_date": dlp_date, "estimated": dlp_estimated},
             ]
         return [{"stage": "dlp_end", "amount_cents": held,
-                 "due_date": po["dlp_end_date"]}]
+                 "due_date": dlp_date, "estimated": dlp_estimated}]
+
+    @staticmethod
+    def add_months(iso_date, months):
+        """`2027-03-31` + 12 months. Clamps to the last day of the target
+        month, so 31 January + 1 month is 28 February rather than an error."""
+        try:
+            y, m, d = (int(x) for x in str(iso_date).split("-"))
+        except (ValueError, AttributeError):
+            return None
+        total = (y * 12 + (m - 1)) + months
+        y2, m2 = divmod(total, 12)
+        m2 += 1
+        last = [31, 29 if (y2 % 4 == 0 and (y2 % 100 or y2 % 400 == 0)) else 28,
+                31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m2 - 1]
+        return f"{y2:04d}-{m2:02d}-{min(d, last):02d}"
 
     # ---------------------------------------------------------- worklist
     # Codes that are not codes. Aliasing one would map five projects to
@@ -1105,6 +1130,130 @@ class Db:
             return ("project has invoicing history against this code; "
                     "correcting it would orphan those references")
         return None
+
+    OPENING_TRIGGERS = ("claim_line_opening_no_update",
+                        "claim_line_opening_no_delete")
+
+    @contextlib.contextmanager
+    def _opening_balances_writable(self):
+        """Stand the immutability triggers down, briefly and explicitly.
+
+        Opening balances are the boundary of what this platform knows and
+        nothing should edit them by accident -- but they are MIGRATION
+        ARTIFACTS, and an artifact built from a register that has since been
+        corrected has to be correctable too. Restored in a `finally`, so an
+        exception cannot leave the guarantee switched off.
+        """
+        definitions = {
+            name: self.scalar("SELECT sql FROM sqlite_master WHERE name = ?",
+                              (name,))
+            for name in self.OPENING_TRIGGERS}
+        missing = [n for n, sql in definitions.items() if not sql]
+        if missing:
+            raise RuntimeError(
+                f"cannot find trigger definitions {missing}; refusing to "
+                "make opening balances writable")
+        with self._tx() as c:
+            for name in self.OPENING_TRIGGERS:
+                c.execute(f"DROP TRIGGER {name}")
+            try:
+                yield c
+            finally:
+                for name in self.OPENING_TRIGGERS:
+                    c.execute(definitions[name])
+
+    def apply_retention_to_opening_balances(self, project_id, actor_id):
+        """Retention was withheld on pre-FY27 invoicing too.
+
+        The opening balance represents invoices that were issued, and the
+        customer held retention against them -- on three of the seven
+        retention projects the full cap was reached before the platform's
+        window even opened. Leaving it at zero would report $82,240 of held
+        money as not held.
+
+        The figure is DERIVED (rate x opening, capped), because the workbook
+        never recorded what was actually withheld. It is stored rather than
+        computed on read so it can be corrected when the real number is
+        known, and it is audited as a derivation rather than a fact.
+        """
+        now = int(time.time())
+        rows = self.query(
+            """SELECT cl.id, cl.amount_cents, cl.retention_cents,
+                      po.id AS po_id, po.amount_cents AS contract_cents,
+                      po.retention_rate_bp, po.retention_cap_bp
+               FROM claim_line cl
+               JOIN customer_po po ON po.project_id = cl.project_id
+               WHERE cl.project_id = ? AND cl.is_opening_balance = 1
+                 AND po.retention_applies = 1""", (project_id,))
+        if not rows:
+            return 0
+        changed = 0
+        with self._opening_balances_writable() as c:
+            for row in rows:
+                cap = money.divide(
+                    row["contract_cents"] * (row["retention_cap_bp"] or 0), 10000)
+                want = min(money.apply_rate(row["amount_cents"],
+                                            row["retention_rate_bp"] or 0), cap)
+                if want == row["retention_cents"]:
+                    continue
+                c.execute(
+                    """UPDATE claim_line SET retention_cents = ?,
+                           customer_po_id = COALESCE(customer_po_id, ?)
+                       WHERE id = ?""", (want, row["po_id"], row["id"]))
+                c.execute(
+                    """INSERT INTO audit_log (ts, actor_user_id, action,
+                           target_type, target_id, detail)
+                       VALUES (?,?,'retention_on_opening','claim_line',?,?)""",
+                    (now, actor_id, str(row["id"]),
+                     f"derived {money.format(want)} withheld on an opening "
+                     f"balance of {money.format(row['amount_cents'])} "
+                     f"(not recorded in the workbook)"))
+                changed += 1
+        return changed
+
+    def set_retention_terms(self, project_id, cap_bp, rate_bp, policy,
+                            split_bp, actor_id):
+        """Apply retention terms to every PO on a project.
+
+        The register states retention per PROJECT; the model holds it per PO
+        (ADR: a variation raising the PO raises its cap with it). Applying
+        the project's figure to each of its POs is the faithful reading --
+        each then caps independently, which is what happens in practice when
+        scope is split across orders.
+        """
+        now = int(time.time())
+        applies = 1 if cap_bp else 0
+        with self._tx() as c:
+            pos = c.execute(
+                "SELECT id, retention_cap_bp, retention_applies FROM customer_po "
+                "WHERE project_id = ?", (project_id,)).fetchall()
+            changed = []
+            for po in pos:
+                if (po["retention_applies"] == applies
+                        and po["retention_cap_bp"] == (cap_bp or None)):
+                    continue
+                c.execute(
+                    """UPDATE customer_po
+                       SET retention_applies = ?, retention_cap_bp = ?,
+                           retention_rate_bp = ?, release_policy = ?,
+                           release_split_bp = ?
+                       WHERE id = ?""",
+                    (applies, cap_bp or None, rate_bp if applies else None,
+                     policy if applies else None,
+                     split_bp if applies else None, po["id"]))
+                changed.append(po["id"])
+            if changed:
+                c.execute(
+                    """INSERT INTO audit_log (ts, actor_user_id, action,
+                           target_type, target_id, detail)
+                       VALUES (?,?,'retention_terms','project',?,?)""",
+                    (now, actor_id, str(project_id),
+                     f"cap {cap_bp}bp, {rate_bp}bp per claim, {policy}"
+                     if applies else "retention removed"))
+        # Retention was held on the pre-FY27 invoicing too.
+        if applies:
+            self.apply_retention_to_opening_balances(project_id, actor_id)
+        return changed
 
     def project_is_deletable(self, project_id):
         """A project carrying money is history, not a record you remove.

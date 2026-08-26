@@ -274,10 +274,10 @@ def create_placeholder_pos(db, needs_po, actor_id):
         with db._tx() as c:
             cur = c.execute(
                 """INSERT INTO customer_po (entity_id, project_id, amount_cents,
-                       note, created_by, created_ts)
+                       note, is_placeholder, created_by, created_ts)
                    SELECT entity_id, id, 0,
                           'placeholder: claims exist with no recorded PO',
-                          ?, strftime('%s','now')
+                          1, ?, strftime('%s','now')
                    FROM project WHERE id = ?""", (actor_id, project_id))
             made.append((project_id, cur.lastrowid, name))
     return made

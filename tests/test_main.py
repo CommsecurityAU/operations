@@ -355,6 +355,77 @@ class TestTlsPreflight(unittest.TestCase):
         self.assertEqual(len(socket_mod.socket.__subclasses__()), before)
 
 
+class TestStaticIcons(unittest.TestCase):
+    """A 404 favicon is invisible: the browser shows a generic page icon and
+    nobody investigates. So it is asserted rather than assumed."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        secrets_path = os.path.join(self.dir, "secrets", "store.json")
+        LocalProvider(secrets_path).set("OIDC_CLIENT_SECRET", "x")
+        cfg = Config(data_dir=self.dir, tls=False, port=0,
+                     oidc_client_id="cid", oidc_redirect_uri="http://x/cb")
+        logging.getLogger("ops.http").setLevel(logging.CRITICAL)
+        self.db, self.server, self.sched = boot(
+            cfg=cfg, env={"OPS_SECRETS_PATH": secrets_path}, serve=False)
+        self.port = self.server.server_address[1]
+        self.t = threading.Thread(
+            target=self.server.serve_forever, kwargs={"poll_interval": 0.01},
+            daemon=True)
+        self.t.start()
+
+    def tearDown(self):
+        self.sched.stop()
+        self.server.shutdown()
+        self.server.server_close()
+        self.t.join(timeout=5)
+        self.db.close()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def fetch(self, path):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        c.request("GET", path)
+        r = c.getresponse()
+        body = r.read()
+        c.close()
+        return r.status, r.getheader("Content-Type"), body
+
+    def test_static_files_are_never_stored(self):
+        """`no-store`, not `no-cache`: the latter permits STORING and only
+        requires revalidation, and with no ETag or Last-Modified there is
+        nothing to revalidate against -- an ambiguous state browsers resolve
+        differently. It cost a round trip, with a module correct on disk and
+        an old copy still running in the tab."""
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        c.request("GET", "/static/app.js")
+        r = c.getresponse()
+        r.read()
+        self.assertEqual(r.getheader("Cache-Control"), "no-store")
+        c.close()
+
+    def test_the_favicon_is_served_as_an_image(self):
+        status, kind, body = self.fetch("/static/favicon.png")
+        self.assertEqual(status, 200)
+        self.assertEqual(kind, "image/png")
+        self.assertTrue(body.startswith(b"\x89PNG"))
+
+    def test_the_touch_icon_is_served(self):
+        self.assertEqual(self.fetch("/static/apple-touch-icon.png")[0], 200)
+
+    def test_the_page_actually_references_them(self):
+        """Serving an icon nothing links to is the same as not having one."""
+        _s, _k, page = self.fetch("/")
+        self.assertIn(b"/static/favicon.png", page)
+        self.assertIn(b"/static/apple-touch-icon.png", page)
+
+    def test_the_icons_stay_small(self):
+        """They are fetched on every cold visit. The source artwork was
+        58 KB; a tab icon has no business costing that."""
+        for name in ("favicon.png", "apple-touch-icon.png"):
+            size = os.path.getsize(os.path.join(ROOT, "ops", "static", name))
+            self.assertLess(size, 8 * 1024, f"{name} is {size} bytes")
+
+
 class TestBootRefusals(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
@@ -452,10 +523,6 @@ class TestStaticFiles(Stp0Case):
             self.assertEqual(status, 200, path)
             self.assertIn(expected, headers["Content-Type"], path)
 
-    def test_static_is_no_cache(self):
-        _s, headers, _b = self.raw("/static/app.js")
-        self.assertEqual(headers["Cache-Control"], "no-cache")
-
     def test_path_traversal_is_refused(self):
         """The router pattern already excludes `/`, but the containment
         check is what survives a refactor of the router."""
@@ -482,6 +549,34 @@ class TestStp0ExitCriteria(Stp0Case):
         self.assertEqual(status, 200)
         self.assertTrue(body["ok"])
         self.assertEqual(body["schema"]["missing"], [])
+
+    def test_healthz_reports_the_assets_on_disk(self):
+        """A different question from `code`: static files are read per
+        request, so the running server is never stale with respect to them
+        -- but the DISK can be behind what was delivered, and that gap cost
+        a round trip when `-Stale` reported current while claims.js was two
+        versions old."""
+        _s, body = self.request("GET", "/healthz")
+        self.assertEqual(body["assets"], main_mod.asset_fingerprint())
+        self.assertEqual(len(body["assets"]), 12)
+
+    def test_the_asset_fingerprint_moves_when_a_static_file_changes(self):
+        import tempfile as tf
+        d = tf.mkdtemp()
+        try:
+            with open(os.path.join(d, "app.js"), "w") as f:
+                f.write("export const a = 1;\n")
+            before = main_mod.asset_fingerprint(d)
+            with open(os.path.join(d, "app.js"), "w") as f:
+                f.write("export const a = 2;\n")
+            self.assertNotEqual(before, main_mod.asset_fingerprint(d))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_the_two_fingerprints_are_independent(self):
+        """Changing a stylesheet must not look like changing the server."""
+        self.assertNotEqual(main_mod.code_fingerprint(),
+                            main_mod.asset_fingerprint())
 
     def test_healthz_reports_the_code_it_is_running(self):
         """One request answers "is this server running what I just wrote".

@@ -21,9 +21,9 @@ from ops.db import Db  # noqa: E402
 MIGRATIONS = os.path.join(ROOT, "ops", "migrations")
 FIXTURE = os.path.join(ROOT, "tests", "fixtures", "project_register_fy27.csv")
 
-PO_CENTS = 723265700
+PO_CENTS = 723394200
 PRIOR_CENTS = 367040527
-ORDERS_IN_HAND_CENTS = 356225173
+ORDERS_IN_HAND_CENTS = 356353673
 OPENING_ROWS = 25
 
 
@@ -81,6 +81,69 @@ class TestTheFigureDidNotMove(Case):
             "SELECT sql FROM sqlite_master WHERE name='v_project_orders_in_hand'")
         for year in ("2026", "2027", "FY27", "07-01"):
             self.assertNotIn(year, sql)
+
+
+class TestContractVersusOrdered(Case):
+    """The register's `Purchase Order` column was the CONTRACT VALUE.
+    Migration 003 turned it into a customer_po row, so adding the real
+    orders alongside it double-counted -- `200 Victoria - IBP` read
+    $422,833 against a $295,000 contract."""
+
+    def test_the_contract_is_the_projects_own_figure(self):
+        self.assertEqual(self.db.scalar(
+            "SELECT SUM(contract_value_cents) FROM v_project_orders_in_hand"),
+            PO_CENTS)
+
+    def test_adding_an_order_does_not_change_the_contract(self):
+        pid = self.db.scalar(
+            "SELECT id FROM project WHERE name = '200 Victoria - IBP'")
+        before = self.db.scalar(
+            "SELECT contract_value_cents FROM v_project_orders_in_hand "
+            "WHERE project_id = ?", (pid,))
+        with self.db._tx() as c:
+            c.execute("""INSERT INTO customer_po (entity_id, project_id,
+                             po_number, amount_cents, created_ts)
+                         VALUES (1,?, 'PO06932420_255549', 1191660, 0)""", (pid,))
+        row = self.db.query_one(
+            "SELECT * FROM v_project_orders_in_hand WHERE project_id = ?", (pid,))
+        self.assertEqual(row["contract_value_cents"], before)
+        self.assertEqual(row["ordered_cents"], 1191660)
+
+    def test_orders_in_hand_still_means_contract_less_invoiced(self):
+        """What the register has always meant, and what every pinned figure
+        reconciles to. The PO-sum version quietly redefined it."""
+        row = self.db.query_one(
+            """SELECT SUM(contract_value_cents) c, SUM(invoiced_prior_cents) i,
+                      SUM(orders_in_hand_cents) o FROM v_project_orders_in_hand""")
+        self.assertEqual(row["o"], row["c"] - row["i"])
+
+    def test_the_migrated_rows_are_placeholders_not_orders(self):
+        self.assertEqual(self.db.scalar(
+            "SELECT SUM(ordered_cents) FROM v_project_orders_in_hand"), 0)
+        self.assertGreater(self.db.scalar(
+            "SELECT COUNT(*) FROM customer_po WHERE is_placeholder = 1"), 0)
+
+    def test_a_placeholder_can_still_carry_claims(self):
+        """Which is why they were flagged rather than deleted: 204 claims
+        reference them and the retention terms sit on them."""
+        po = self.db.query_one(
+            "SELECT id, project_id, entity_id FROM customer_po "
+            "WHERE is_placeholder = 1 LIMIT 1")
+        period = self.db.scalar("SELECT id FROM period LIMIT 1")
+        with self.db._tx() as c:
+            c.execute(
+                """INSERT INTO claim_line (entity_id, project_id,
+                       customer_po_id, period_id, status, amount_cents, created_ts)
+                   VALUES (?,?,?,?, 'forecast', 5000, 0)""",
+                (po["entity_id"], po["project_id"], po["id"], period))
+        self.assertEqual(self.db.scalar(
+            """SELECT COUNT(*) FROM claim_line cl
+               JOIN customer_po p ON p.id = cl.customer_po_id
+               WHERE p.is_placeholder = 1"""), 1)
+        # And it still does not count as ordered.
+        self.assertEqual(self.db.scalar(
+            "SELECT ordered_cents FROM v_project_orders_in_hand "
+            "WHERE project_id = ?", (po["project_id"],)), 0)
 
 
 class TestOpeningBalances(Case):

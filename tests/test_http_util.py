@@ -45,6 +45,11 @@ def build_router():
     r.add("GET", "/boom", boom, role="public")
     r.add("POST", "/upload", upload, role="public")
     r.add("GET", "/item/{id}", lambda h, user, id: (200, {"id": id}), role="public")
+
+    def missing(handler, user):
+        # A REAL route whose thing does not exist -- the other kind of 404.
+        raise HttpError(404, "not found")
+    r.add("GET", "/missing-item", missing, role="public")
     return r
 
 
@@ -111,6 +116,20 @@ class TestRouting(ServerCase):
 
     def test_unknown_path_is_404(self):
         self.assertEqual(self.get("/nope")[0], 404)
+
+    def test_the_404_names_the_method_and_path(self):
+        """A handler saying `not found` because an id is unknown and the
+        router saying it because the route does not exist used to read
+        identically. The second happens whenever a module gains a route and
+        the server has not been restarted -- Python loads a module once --
+        so the two are worth telling apart without a screenshot."""
+        _s, _h, body = self.get("/api/pos/1/move")
+        self.assertIn(b"no route for GET /api/pos/1/move", body)
+
+    def test_a_handler_may_still_say_not_found(self):
+        """The distinction is the router's message, not a ban on the
+        phrase: a real route with a bad id should still say `not found`."""
+        self.assertIn(b"not found", self.get("/missing-item")[2])
 
     def test_wrong_method_is_405_not_404(self):
         c = self.conn()

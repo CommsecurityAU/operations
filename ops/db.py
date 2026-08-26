@@ -476,6 +476,13 @@ class Db:
                        target_type, target_id, detail)
                    VALUES (?,?,'project_create','project',?,?)""",
                 (now, actor_id, str(pid), f"{job_code} {fields['name']}"))
+            # The contract value is the project's own figure now (migration
+            # 007), not the sum of its orders: on a job where POs arrive
+            # progressively the contract exists long before the orders do.
+            c.execute(
+                "UPDATE project SET contract_value_cents = ? WHERE id = ?",
+                (fields.get("purchase_order_cents", 0), pid))
+
             # EXPAND-WINDOW DUAL WRITE (§4, ADR-25).
             #
             # project.purchase_order_cents is still read by the previous
@@ -486,15 +493,19 @@ class Db:
             #
             # This is temporary and ugly on purpose. It disappears at
             # contraction, one release after 003 has been stable.
+            # A placeholder, not an order: it exists so claims and
+            # retention have something to hang from until the customer
+            # actually raises a PO.
             po_cents = fields.get("purchase_order_cents", 0)
             if po_cents:
                 c.execute(
                     """INSERT INTO customer_po
                        (entity_id, project_id, po_number, amount_cents,
-                        note, created_by, created_ts)
-                       VALUES (?,?,?,?,?,?,?)""",
+                        note, is_placeholder, created_by, created_ts)
+                       VALUES (?,?,?,?,?,1,?,?)""",
                     (fields["entity_id"], pid, fields.get("po_number"),
-                     po_cents, fields.get("po_note"), actor_id, now))
+                     po_cents, fields.get("po_note") or "contract value, no order yet",
+                     actor_id, now))
             prior_cents = fields.get("invoiced_prior_cents", 0)
             if prior_cents:
                 c.execute(
@@ -561,21 +572,26 @@ class Db:
                        VALUES (?,?,'project_update','project',?,?)""",
                     (now, actor_id, str(project_id),
                      f"{key}: {old_value!r} -> {new_value!r}"))
-            # Same dual write. Until the PO editor exists (STP-2), a change
-            # to the legacy column has to move the PO it was migrated into,
-            # or the register and the view disagree about the same project.
+            # The contract value lives on the project. Its placeholder PO
+            # tracks it so retention (a percentage OF the contract) and any
+            # claims still attached keep working.
+            if "purchase_order_cents" in applied:
+                _o, new_contract = applied["purchase_order_cents"]
+                c.execute(
+                    "UPDATE project SET contract_value_cents = ? WHERE id = ?",
+                    (new_contract, project_id))
             if "purchase_order_cents" in applied:
                 _old_v, new_v = applied["purchase_order_cents"]
                 po = c.execute(
                     """SELECT id, amount_cents FROM customer_po
-                       WHERE project_id = ? ORDER BY id LIMIT 1""",
-                    (project_id,)).fetchone()
+                       WHERE project_id = ? AND is_placeholder = 1
+                       ORDER BY id LIMIT 1""", (project_id,)).fetchone()
                 if po is None:
                     c.execute(
                         """INSERT INTO customer_po
                            (entity_id, project_id, amount_cents, note,
                             created_by, created_ts)
-                           SELECT entity_id, id, ?, 'created by contract edit',
+                           SELECT entity_id, id, ?, 'contract value, no order yet',
                                   ?, ?
                            FROM project WHERE id = ?""",
                         (new_v, actor_id, now, project_id))
@@ -593,6 +609,196 @@ class Db:
             row = c.execute(
                 "SELECT * FROM project WHERE id = ?", (project_id,)).fetchone()
             return {"project": dict(row), "changed": sorted(applied)}
+
+    # ---------------------------------------------------------- customer POs
+    PO_KINDS = ("variation", "correction")
+
+    def create_customer_po(self, fields, actor_id):
+        """A new order. Not a change to an existing one: separate scope, its
+        own number, and its own retention terms or none."""
+        now = int(time.time())
+        with self._tx() as c:
+            cur = c.execute(
+                """INSERT INTO customer_po
+                   (entity_id, project_id, po_number, amount_cents,
+                    issued_date, note, retention_applies, retention_rate_bp,
+                    retention_cap_bp, release_policy, release_split_bp,
+                    created_by, created_ts)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (fields["entity_id"], fields["project_id"],
+                 fields.get("po_number"), fields["amount_cents"],
+                 fields.get("issued_date"), fields.get("note"),
+                 fields.get("retention_applies", 0),
+                 fields.get("retention_rate_bp"),
+                 fields.get("retention_cap_bp"),
+                 fields.get("release_policy"),
+                 fields.get("release_split_bp"), actor_id, now))
+            po_id = cur.lastrowid
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'po_create','customer_po',?,?)""",
+                (now, actor_id, str(po_id),
+                 f"{fields.get('po_number') or '(no number)'} "
+                 f"{money.format(fields['amount_cents'])}"))
+            return dict(c.execute("SELECT * FROM customer_po WHERE id = ?",
+                                  (po_id,)).fetchone())
+
+    def revise_customer_po(self, po_id, new_amount, kind, reason,
+                           effective_date, actor_id):
+        """Change a PO's value, saying WHY.
+
+        `variation` — the contract became bigger (or smaller) on a date. The
+        figures before that date were right.
+        `correction` — the recorded value was wrong. The figures before were
+        wrong too, and correcting it changes what they should have said.
+
+        The distinction cannot be recovered later from the numbers, which is
+        why it is required rather than inferred.
+        """
+        if kind not in self.PO_KINDS:
+            raise ValueError(f"kind must be one of {', '.join(self.PO_KINDS)}")
+        if not (reason or "").strip():
+            raise ValueError("a reason is required")
+        if kind == "variation" and not (effective_date or "").strip():
+            raise ValueError("a variation needs the date the contract changed")
+        now = int(time.time())
+        with self._tx() as c:
+            before = c.execute("SELECT * FROM customer_po WHERE id = ?",
+                               (po_id,)).fetchone()
+            if before is None:
+                return None
+            if before["amount_cents"] == new_amount:
+                return {"changed": False, "amount_cents": new_amount}
+            c.execute("UPDATE customer_po SET amount_cents = ? WHERE id = ?",
+                      (new_amount, po_id))
+            c.execute(
+                """INSERT INTO customer_po_revision
+                   (customer_po_id, field, old_value, new_value, reason,
+                    kind, effective_date, changed_by, changed_ts)
+                   VALUES (?,'amount_cents',?,?,?,?,?,?,?)""",
+                (po_id, str(before["amount_cents"]), str(new_amount), reason,
+                 kind, (effective_date or None), actor_id, now))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'po_revise','customer_po',?,?)""",
+                (now, actor_id, str(po_id),
+                 f"{kind}: {money.format(before['amount_cents'])} -> "
+                 f"{money.format(new_amount)} ({reason})"))
+            return {"changed": True, "kind": kind,
+                    "from": before["amount_cents"], "amount_cents": new_amount}
+
+    def update_customer_po(self, po_id, changes, actor_id):
+        """Everything except the amount, which needs `revise` and a reason."""
+        editable = ("po_number", "issued_date", "note", "retention_applies",
+                    "retention_rate_bp", "retention_cap_bp", "release_policy",
+                    "release_split_bp")
+        now = int(time.time())
+        with self._tx() as c:
+            before = c.execute("SELECT * FROM customer_po WHERE id = ?",
+                               (po_id,)).fetchone()
+            if before is None:
+                return None
+            applied = []
+            for key in editable:
+                if key not in changes or before[key] == changes[key]:
+                    continue
+                c.execute(f"UPDATE customer_po SET {key} = ? WHERE id = ?",
+                          (changes[key], po_id))
+                applied.append(key)
+                c.execute(
+                    """INSERT INTO audit_log (ts, actor_user_id, action,
+                           target_type, target_id, detail)
+                       VALUES (?,?,'po_update','customer_po',?,?)""",
+                    (now, actor_id, str(po_id),
+                     f"{key}: {before[key]!r} -> {changes[key]!r}"))
+            return {"po": dict(c.execute(
+                "SELECT * FROM customer_po WHERE id = ?", (po_id,)).fetchone()),
+                "changed": sorted(applied)}
+
+    def customer_po_is_movable(self, po_id):
+        """A PO with claims cannot move on its own.
+
+        A claim carries both `project_id` and `customer_po_id`. Moving the
+        order without its claims would leave the two disagreeing about which
+        project the work belongs to -- and moving the claims as well is a
+        different, larger operation that should be asked for explicitly
+        rather than happening as a side effect.
+        """
+        row = self.query_one(
+            "SELECT claim_count FROM v_customer_po_history WHERE customer_po_id = ?",
+            (po_id,))
+        if row is None:
+            return "no such PO"
+        if row["claim_count"]:
+            return (f"{row['claim_count']} claim(s) are billed against this "
+                    "order; move or re-point them first")
+        return None
+
+    def move_customer_po(self, po_id, project_id, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            po = c.execute(
+                """SELECT po.po_number, po.amount_cents, po.project_id,
+                          po.entity_id, p.name AS from_name
+                   FROM customer_po po JOIN project p ON p.id = po.project_id
+                   WHERE po.id = ?""", (po_id,)).fetchone()
+            target = c.execute(
+                "SELECT id, name, entity_id FROM project WHERE id = ?",
+                (project_id,)).fetchone()
+            if po is None or target is None:
+                return None
+            if target["entity_id"] != po["entity_id"]:
+                # Entities are separate legal companies; an order does not
+                # cross between them by being dragged.
+                raise ValueError("that project belongs to a different entity")
+            c.execute("UPDATE customer_po SET project_id = ? WHERE id = ?",
+                      (project_id, po_id))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'po_move','customer_po',?,?)""",
+                (now, actor_id, str(po_id),
+                 f"{po['po_number'] or '(no number)'} "
+                 f"{money.format(po['amount_cents'])}: "
+                 f"{po['from_name']} -> {target['name']}"))
+            return {"from": po["from_name"], "to": target["name"],
+                    "po_number": po["po_number"],
+                    "amount_cents": po["amount_cents"]}
+
+    def customer_po_is_deletable(self, po_id):
+        """A PO with claims against it is history. Returns the reason it may
+        not be removed, or None."""
+        row = self.query_one(
+            "SELECT claim_count FROM v_customer_po_history WHERE customer_po_id = ?",
+            (po_id,))
+        if row is None:
+            return "no such PO"
+        if row["claim_count"]:
+            return (f"{row['claim_count']} claim(s) are billed against this "
+                    "order; it cannot be removed")
+        return None
+
+    def delete_customer_po(self, po_id, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            row = c.execute(
+                "SELECT po_number, amount_cents FROM customer_po WHERE id = ?",
+                (po_id,)).fetchone()
+            if row is None:
+                return False
+            c.execute("DELETE FROM customer_po_revision WHERE customer_po_id = ?",
+                      (po_id,))
+            c.execute("DELETE FROM customer_po WHERE id = ?", (po_id,))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'po_delete','customer_po',?,?)""",
+                (now, actor_id, str(po_id),
+                 f"{row['po_number'] or '(no number)'} "
+                 f"{money.format(row['amount_cents'])}"))
+            return True
 
     # ------------------------------------------------------- claim lines
     def create_claim_line(self, fields, actor_id):
@@ -819,6 +1025,102 @@ class Db:
                     (now, actor_id, str(schedule_id),
                      f"{created} claims: {', '.join(made)}"))
         return {"created": created, "existing": existing, "periods": made}
+
+    SCHEDULE_MUTABLE = ("description", "amount_cents", "frequency",
+                        "start_period_id", "end_period_id", "renewal_date",
+                        "renewal_notice_days", "renewal_note", "is_active")
+
+    def update_schedule(self, schedule_id, changes, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            before = c.execute("SELECT * FROM claim_schedule WHERE id = ?",
+                               (schedule_id,)).fetchone()
+            if before is None:
+                return None
+            applied = {}
+            for key in self.SCHEDULE_MUTABLE:
+                if key not in changes or before[key] == changes[key]:
+                    continue
+                c.execute(f"UPDATE claim_schedule SET {key} = ? WHERE id = ?",
+                          (changes[key], schedule_id))
+                applied[key] = (before[key], changes[key])
+                c.execute(
+                    """INSERT INTO audit_log (ts, actor_user_id, action,
+                           target_type, target_id, detail)
+                       VALUES (?,?,'schedule_update','claim_schedule',?,?)""",
+                    (now, actor_id, str(schedule_id),
+                     f"{key}: {before[key]!r} -> {changes[key]!r}"))
+            return {"schedule": dict(c.execute(
+                "SELECT * FROM claim_schedule WHERE id = ?",
+                (schedule_id,)).fetchone()), "changed": sorted(applied)}
+
+    def adopt_claims_into_schedule(self, schedule_id, actor_id):
+        """Attach claims that already exist to the schedule that describes
+        them.
+
+        Every recurring project in the register arrived with twelve rows
+        already typed. Generating over the top would double the year;
+        adopting recognises that the schedule is a description of work
+        already planned, not a source of new work.
+
+        Amount differences are REPORTED, not corrected: a month where the
+        maintenance charge differed is a fact about that month, and the
+        schedule does not get to overwrite it.
+        """
+        now = int(time.time())
+        schedule = self.query_one("SELECT * FROM claim_schedule WHERE id = ?",
+                                  (schedule_id,))
+        if schedule is None:
+            return {"adopted": 0, "differing": [], "periods": [],
+                    "not_adopted": []}
+        adopted, differing, taken, extra = 0, [], [], []
+        for period in self.schedule_periods(schedule_id):
+            # ONE claim per period, because the unique index says so. A
+            # project can legitimately hold two claims in a month -- 200
+            # Victoria carries a $0.00 invoiced row alongside its monthly
+            # maintenance in Jul-26 -- and adopting the second would breach
+            # the constraint. Skip the period and report the leftovers: a
+            # month with two claims is worth a human look, not a 500.
+            if self.query_one(
+                    """SELECT id FROM claim_line
+                       WHERE schedule_id = ? AND period_id = ?""",
+                    (schedule_id, period["id"])):
+                spare = self.query(
+                    """SELECT id, amount_cents FROM claim_line
+                       WHERE project_id = ? AND period_id = ?
+                         AND schedule_id IS NULL AND is_opening_balance = 0""",
+                    (schedule["project_id"], period["id"]))
+                for other in spare:
+                    extra.append({"period": period["label"],
+                                  "claim_cents": other["amount_cents"]})
+                continue
+            row = self.query_one(
+                """SELECT id, amount_cents FROM claim_line
+                   WHERE project_id = ? AND period_id = ?
+                     AND schedule_id IS NULL AND is_opening_balance = 0
+                   ORDER BY id LIMIT 1""",
+                (schedule["project_id"], period["id"]))
+            if row is None:
+                continue
+            with self._tx() as c:
+                c.execute("UPDATE claim_line SET schedule_id = ? WHERE id = ?",
+                          (schedule_id, row["id"]))
+            adopted += 1
+            taken.append(period["label"])
+            if row["amount_cents"] != schedule["amount_cents"]:
+                differing.append({"period": period["label"],
+                                  "claim_cents": row["amount_cents"],
+                                  "schedule_cents": schedule["amount_cents"]})
+        if adopted:
+            with self._tx() as c:
+                c.execute(
+                    """INSERT INTO audit_log (ts, actor_user_id, action,
+                           target_type, target_id, detail)
+                       VALUES (?,?,'schedule_adopt','claim_schedule',?,?)""",
+                    (now, actor_id, str(schedule_id),
+                     f"{adopted} existing claims adopted: {', '.join(taken)}"))
+        return {"adopted": adopted, "differing": differing,
+                "periods": taken, "not_adopted": extra}
 
     def upcoming_renewals(self, entity_ids=None, within_days=None):
         """Renewals that need attention, soonest first.

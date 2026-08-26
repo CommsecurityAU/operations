@@ -311,6 +311,15 @@ string arrives in Excel as text that will not sum.
   reader before the data. Two independent parses agreeing means nothing if
   both read the same corrupted copy.
 
+**Two fingerprints, because there are two questions (ADR-35)**
+
+- `code` — is the running server the Python on disk? Answers the stale
+  MODULE problem, which has cost five round trips.
+- `assets` — is the static on disk what was delivered? Answers the stale
+  FILE problem, which `code` deliberately could not: static is read per
+  request, so the server is never stale with respect to it, and that
+  correct reasoning answered the wrong question.
+
 **Checks that were wrong about themselves**
 
 - A guardrail nobody has tried to break is a guarantee nobody has checked.
@@ -354,36 +363,63 @@ string arrives in Excel as text that will not sum.
 
 ---
 
+## What changed 26 August, later
+
+**Schedules.** Recurring maintenance is one agreement, not twelve rows a
+year. A new schedule ADOPTS the claims that already exist rather than
+generating over them — every recurring project in the register arrived with
+its rows already typed, so generating first would have doubled the year.
+Coverage reads as a fraction (`12 / 12`), because "12 claims" never said
+whether that was all of them. Renewals lead the screen and appear on the
+register too; only overdue and due ones, because a reminder that is always
+present stops being a reminder.
+
+**Customer orders (ADR-34).** The correction that mattered most today. The
+register's `Purchase Order` column was the CONTRACT VALUE, and migration 003
+had turned it into a customer order — so adding the real POs alongside it
+double-counted. `200 Victoria - IBP` read $422,833.33 against a $295,000
+contract. Contract now belongs to the project; POs are what has actually
+been ordered; orders in hand keeps its original meaning.
+
+**A project row expands to its orders**, with add, edit, revise, move and
+delete. A revision states whether it is a VARIATION (the contract grew, on a
+date) or a CORRECTION (the figure was always wrong) — identical in the
+numbers, and distinguishable only if someone says which at the time.
+
+**Remaining versus forecast**, per project: everything still to bill ought to
+sit in a month somewhere. 56 of 65 projects agree. The nine that do not are
+findings — `88 Robertson St - QLD` plans $173,350 against $93,350 left,
+which usually means an unrecorded variation.
+
+**Smaller:** CSV export of whatever the filters leave; type colour chips at
+low chroma so they group without competing with an alarm; the brand navy and
+orange in the chrome only; the CSSB mark as a favicon; a `no route for
+METHOD /path` message so a stale server stops looking like a bad id.
+
+---
+
 ## Resume point
 
-**Where STP-2 stands.** Schema, importers, the month view, retention and
-forecasting are done and reconciling. Two build items remain, then the
-phase closes:
+**STP-2 is built.** Schema, importers, the month view, retention, schedules,
+customer orders and forecasting are all in and reconciling. What remains is
+not more building:
 
-1. **Schedule UI.** `36 Wellington`, `200 Victoria - ICN Maintenance` and
-   `627 Chapel` each carry twelve hand-entered rows a year. The model is
-   built, tested and idempotent; there is no screen to set one up. This is
-   the largest remaining reduction in manual work and the one thing here the
-   workbook genuinely cannot do.
-2. **PO management** — a second PO on a project, and a variation recorded as
-   a `customer_po_revision`. `update_project` currently moves the migrated
-   PO as a side effect; that is the expand-window compromise and should not
-   outlive it.
+1. **DEPLOY.** The runbook is written (CS-OP-RUN-002) and the case has
+   strengthened every day. The platform holds 204 claims, the FY27 forward
+   position, retention terms on seven projects, PO records and
+   opening-balance corrections — **all on one laptop, with no off-box
+   backup.** The deferral note said the deadline was not the VM but the
+   moment real data arrived. That was three days ago.
+2. **Nine reconciliation findings**, from the remaining-versus-forecast
+   check. `88 Robertson St - QLD` at $80,000 over-forecast is the one to
+   look at first.
+3. **Agree a job-number block with iTrade**, then
+   `tools/job_number_range.py`. Until then allocation refuses, which is
+   correct (ADR-29), and four `TBA` rows sit on the worklist.
+4. **Register the OIDC client** — the one deployment prerequisite that does
+   not need the VM.
 
-**Then the contraction migration**, which removes
-`project.purchase_order_cents` and `project.invoiced_prior_cents` one
-release after `003` has been stable, and with it the dual-write in the
-importer and in `create_project`.
-
-**Outside the phase and increasingly overdue: deployment.** The platform
-holds 202 imported claims, the FY27 forward position, retention terms on
-seven projects, and corrections that exist nowhere else. **There is still no
-off-box backup.** The only copy is one laptop's `data/ops.db`.
-
-**Small:** `matthew parnell` appears in lower case among otherwise
-capitalised project leads; the filter will treat a differently-cased
-spelling as a separate value. Fix in the sheet and `sync_register.py` will
-carry it through.
+**Then STP-3**: supplier costs, migration `008`.
 
 ---
 
@@ -391,10 +427,12 @@ carry it through.
 
 ```powershell
 cd C:\Dev\operations
+Get-ChildItem -Recurse -File | Unblock-File    # after any copy
 .\dev.ps1                 # serve on 5173
-.\dev.ps1 -Stale          # is the running server current?
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 547
+.\dev.ps1 -Stale          # code AND assets, compared against the delivery
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 645
 py tools\drift_check.py --csv "<register>.csv" --db data\ops.db
 ```
 
-Code fingerprint: `284c0ec39f69`. Migrations applied: `001` through `005`.
+Fingerprints at end of day: code `3010691b3e64`, assets `77eccf48a46b`.
+Migrations applied: `001` through `007`.

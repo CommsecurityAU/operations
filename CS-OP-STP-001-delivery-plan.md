@@ -1,6 +1,6 @@
 # CS-OP-STP-001 — Delivery plan
 
-- **As at:** 25 August 2026
+- **As at:** 26 August 2026
 - **Status:** Live. **Supersedes CS-OP-ARCH-001 §11 in full.**
 - **Depends on:** CS-OP-ARCH-002 (stack, budgets, ADR-08…26)
 - **Companions:** CS-OP-BUILD-001 (build status), CS-OP-RUN-001 (restore runbook)
@@ -43,9 +43,11 @@ Stated explicitly so nobody has to infer it again.
 | `003` | STP-2 | customer_po, customer_po_revision, claim_line, claim_line_revision, opening balances — **applied** |
 | `004` | STP-2 | retention per PO, practical completion and DLP dates — **applied** |
 | `005` | STP-2 | claim_schedule, renewal dates — **applied** |
-| `006` | STP-3 | supplier, supplier_po, supplier_po_line, supplier_invoice, fx_rate, project_expense_estimate |
-| `007` | STP-4 | office_expense_line, payroll_rate, tax_rate |
-| `008` | STP-5 | rollup views only |
+| `006` | STP-2 | customer_po_revision kinds: variation vs correction — **applied** |
+| `007` | STP-2 | contract value on the project (ADR-34) — **applied** |
+| `008` | STP-3 | supplier, supplier_po, supplier_po_line, supplier_invoice, fx_rate, project_expense_estimate |
+| `009` | STP-4 | office_expense_line, payroll_rate, tax_rate |
+| `010` | STP-5 | rollup views only |
 
 **STP-0 and STP-1 share migration `001`.** ARCH-001 assigned the project
 register to STP-1's migration, but the register is what STP-0's exit
@@ -229,7 +231,7 @@ with roll-up and estimate clearly separated.
 
 **Proposal.**
 
-- Migration `006`: `supplier`, `supplier_po`, `supplier_po_line`,
+- Migration `008`: `supplier`, `supplier_po`, `supplier_po_line`,
   `supplier_invoice`, `fx_rate`, `project_expense_estimate`
 - Per-entity sequential supplier PO numbering via `UPDATE … RETURNING`
   inside the issuing transaction
@@ -261,7 +263,7 @@ dated rate table. One wage change propagates automatically.
 
 **Proposal.**
 
-- Migration `007`: `office_expense_line`, `payroll_rate`, `tax_rate`
+- Migration `009`: `office_expense_line`, `payroll_rate`, `tax_rate`
 - Rates are **dated rows per entity, never configuration** (ADR-20). Every
   computed figure records the `rate_bp` it used, so changing a rate cannot
   restate a prior year
@@ -301,7 +303,7 @@ and no cell can be `#REF!` or `#N/A` by construction.
 
 **Proposal.**
 
-- Migration `008`: `v_project_financials`, `v_monthly_pl`, `v_dashboard`,
+- Migration `010`: `v_project_financials`, `v_monthly_pl`, `v_dashboard`,
   `v_by_type`, `v_by_client` — views only, no new fact tables
 - Operations Summary, monthly P&L, actual vs plan vs forecast, by type, by
   client, by project

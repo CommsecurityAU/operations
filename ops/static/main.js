@@ -10,6 +10,7 @@ import { api, h, mount } from "./app.js";
 const SCREENS = {
   projects: () => import("./projects.js"),
   claims: () => import("./claims.js"),
+  schedules: () => import("./schedules.js"),
   worklist: () => import("./worklist.js"),
 };
 

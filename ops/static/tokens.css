@@ -25,12 +25,59 @@
   --t-1: #9aa4ac;   /* secondary, labels */
   --t-2: #6b767e;   /* tertiary, disabled */
 
-  /* ---- the one accent ---- */
+  /* ---- brand ----
+   * The logo's true colours, sampled from the signature artwork. Used for
+   * the WORDMARK and the top bar only.
+   *
+   * `--brand-orange` is deliberately NOT the accent. At full saturation it
+   * is an exception colour by ISA-101 standards, and putting it on every
+   * filter button and every primary total would leave nothing louder for
+   * an actual alarm. It is also only 7 degrees of hue from `--alarm`, so
+   * the two would be hard to tell apart in a figure. The logo is allowed
+   * to be brand; the interface is allowed to be quiet.
+   */
+  --brand-navy:   #002564;
+  --brand-orange: #ff621f;
+  --s-brand:      #0a1526;   /* top bar: navy, dark enough to stay furniture */
+
+  /* ---- the one accent ----
+   * Amber, a muted relative of the brand orange rather than the thing
+   * itself: same warm family, low enough saturation to sit under a
+   * hundred rows of figures without competing with them.
+   */
   --accent:     #c8922f;
   --accent-dim: #6d5220;
 
+  /* ---- project types: CATEGORY, not severity ----
+   * Nine live types, and nine saturated colours would leave every row
+   * coloured and nothing louder for an alarm. So these are deliberately
+   * low-chroma: enough to group a long register by eye, not enough to
+   * compete with an exception.
+   *
+   * They are also never the only signal. The type code sits beside the
+   * chip, so nothing here has to be distinguishable to be readable --
+   * which matters at nine hues, beyond what anyone reliably separates, and
+   * for the ~8% of men who cannot separate them at all.
+   *
+   * Keyed by CODE, not by position: adding a type must not reshuffle the
+   * colours people have learned.
+   */
+  --type-icn:        #5b7fa6;   /* blue        */
+  --type-ibp:        #6a8f7b;   /* green       */
+  --type-ems:        #a67d5b;   /* tan         */
+  --type-nsw:        #7b6a9f;   /* violet      */
+  --type-consulting: #8a8f5b;   /* olive       */
+  --type-service:    #5b8f8f;   /* teal        */
+  --type-security:   #9f6a7b;   /* mauve       */
+  --type-qaccess:    #8a7a5b;   /* bronze      */
+  --type-rnd:        #6a7a9f;   /* slate blue  */
+  --type-none:       #4a5259;   /* untyped     */
+
   /* ---- exceptions only: errors, negative variance, flagged rows ---- */
-  --alarm:  #c4543a;
+  /* Pushed redder now that brand orange appears in the chrome: at #c4543a
+   * it sat 7 degrees from the logo, which is not enough separation for a
+   * colour whose whole job is to be unmistakable. */
+  --alarm:  #c0392b;
   --warn:   #b8862b;
   --ok:     #5c8a6a;
 

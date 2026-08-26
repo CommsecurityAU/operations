@@ -63,6 +63,17 @@ export const fmt = {
     const part = Math.abs(cents) % 100;
     return `${neg ? "-" : ""}${whole}.${String(part).padStart(2, "0")}`;
   },
+  // Basis points to a percentage. Rates are held in bp so 4.85% is 485
+  // exactly, but nobody reads basis points -- and the conversion belongs
+  // here with the other unit arithmetic rather than inline wherever it
+  // happened to be needed.
+  rate(bp) {
+    if (bp === null || bp === undefined) return "";
+    const whole = Math.trunc(Math.abs(bp) / 100);
+    const part = Math.abs(bp) % 100;
+    const text = part ? `${whole}.${String(part).padStart(2, "0")}` : String(whole);
+    return `${bp < 0 ? "-" : ""}${text}%`;
+  },
   money(cents) {
     if (cents === null || cents === undefined) return "";
     return AUD.format(cents / 100);
@@ -125,6 +136,20 @@ export function moneyInput(cents, attrs) {
     if (c !== null) show(c);          // leave it alone if it is not an amount,
   });                                 // so the error message can point at it
   return input;
+}
+
+// typeCell(code) — a category chip beside the code.
+//
+// The chip is an accelerant for scanning a long register, never the signal
+// itself: the code stays visible, so nothing depends on telling nine
+// low-chroma hues apart. Unknown types get the neutral chip rather than a
+// colour invented on the spot.
+export function typeCell(code) {
+  const text = String(code ?? "").trim();
+  const key = text.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return h("span", { class: "type" },
+    h("span", { class: `type-chip t-${key}`, "aria-hidden": "true" }),
+    h("span", null, text || "\u2013"));
 }
 
 // mount(el, node) — replace a container's contents without innerHTML.

@@ -26,6 +26,7 @@ import time
 from ops import auth, backup, config as config_mod
 from ops.modules import claims as claims_module
 from ops.modules import projects as projects_module
+from ops.modules import schedules as schedules_module
 from ops.modules import worklist as worklist_module
 from ops.db import Db
 from ops.http_util import HttpError, Router, make_server
@@ -41,8 +42,10 @@ MIME = {
     ".js": "text/javascript; charset=utf-8",
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
+    ".png": "image/png",
 }
-MODULES = [projects_module, worklist_module, claims_module]   # §6. Explicit, in order.
+MODULES = [projects_module, worklist_module, claims_module,
+           schedules_module]   # §6. Explicit, in order.
 CERT_WARN_DAYS = 30
 
 
@@ -56,8 +59,9 @@ def code_fingerprint(package_dir=None):
     answers "is the server running what I just wrote" in one request.
 
     Deliberately NOT including static/: those files are read per request, so
-    they are never stale, and folding them in would make the fingerprint
-    change without the running code having changed.
+    the RUNNING SERVER is never stale with respect to them. See
+    `asset_fingerprint` for the disk, which is a different question and the
+    one that actually caught someone out.
     """
     root = package_dir or os.path.dirname(__file__)
     digest = hashlib.sha256()
@@ -67,6 +71,28 @@ def code_fingerprint(package_dir=None):
         for name in filenames:
             if name.endswith((".py", ".sql")):
                 paths.append(os.path.join(dirpath, name))
+    for path in sorted(paths):
+        digest.update(os.path.relpath(path, root).replace("\\", "/").encode())
+        with open(path, "rb") as f:
+            digest.update(f.read())
+    return digest.hexdigest()[:12]
+
+
+def asset_fingerprint(static_dir=None):
+    """Short hash of everything served from static/.
+
+    `code_fingerprint` answers "is the running server the code on disk".
+    This answers a different question -- "is the disk what was delivered" --
+    and that gap cost a round trip: `-Stale` reported current while
+    claims.js was two versions behind, because Python code was up to date
+    and the fingerprint only covered Python.
+    """
+    root = static_dir or os.path.join(os.path.dirname(__file__), "static")
+    digest = hashlib.sha256()
+    paths = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+        paths.extend(os.path.join(dirpath, n) for n in filenames)
     for path in sorted(paths):
         digest.update(os.path.relpath(path, root).replace("\\", "/").encode())
         with open(path, "rb") as f:
@@ -211,8 +237,15 @@ def build_router(db, oidc, key, cfg):
     r = Router()
 
     def _send_static(handler, name):
-        """Static files, no-cache (§3). The asset set is tiny and internal,
-        so fingerprinting would be complexity without a benefit.
+        """Static files, no-store (§3). The asset set is tiny and internal,
+        so fingerprinting the filenames would be complexity without a
+        benefit.
+
+        `no-store`, not `no-cache`: the latter permits STORING and merely
+        requires revalidation, and with no ETag or Last-Modified there is
+        nothing to revalidate against -- an ambiguous state browsers resolve
+        differently. It cost a round trip, with a module correct on disk and
+        an old one still running in the tab.
 
         The router pattern already excludes `/`, but the containment check
         stays: relying on a regex elsewhere in the file to keep this path
@@ -229,7 +262,7 @@ def build_router(db, oidc, key, cfg):
         with open(path, "rb") as f:
             body = f.read()
         handler._send(200, body, content_type=MIME[ext],
-                      extra_headers={"Cache-Control": "no-cache"})
+                      extra_headers={"Cache-Control": "no-store"})
 
     @r.route("/", role="public")
     def index(handler, user):
@@ -249,6 +282,9 @@ def build_router(db, oidc, key, cfg):
     def healthz(handler, user):
         report = db.health()
         report["code"] = running_code
+        # Read fresh: static files can change under a running server, which
+        # is the whole reason they are not in `code`.
+        report["assets"] = asset_fingerprint()
         report["release"] = os.environ.get("OPS_RELEASE") or None
         return (200 if report["ok"] else 503), report
 

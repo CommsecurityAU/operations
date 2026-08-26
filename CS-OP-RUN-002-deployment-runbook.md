@@ -2,8 +2,8 @@
 
 - **As at:** 25 August 2026
 - **Applies to:** CS-OP-ARCH-002 §13, CS-OP-STP-001 STP-0
-- **Status:** **DEFERRED 25 Aug 2026** — infrastructure not ready. Development
-  continues on STP-2; this runbook waits.
+- **Status:** **DEFERRED 25 Aug 2026** — infrastructure not ready. STP-2 is
+  now built and holds real data; this is the next thing to do.
 
 ---
 
@@ -29,7 +29,12 @@ Two things follow, worth holding in view rather than discovering later:
 **Revisit when:** the VM exists, or STP-2 is ready to carry real data —
 whichever comes first. The second is the harder deadline.
 
-**That moment arrived on 25 August 2026.** The platform now holds 202
+**That moment arrived on 25 August 2026, and STP-2 finished building on
+the 26th.** The platform now also holds customer orders, retention terms on
+seven projects, recurring schedules and PO revision history — none of which
+exists anywhere else.
+
+**Original note, 25 August:** The platform now holds 202
 imported claims, the full FY27 forward position of $3,203,976.74, and
 corrections that exist nowhere else — four opening balances and ten project
 leads applied through `sync_register.py`. **There is still no off-box

@@ -184,6 +184,40 @@ class TestStaticDirectoryHoldsAssetsOnly(unittest.TestCase):
         self.assertNotIn('".py"', body.split("MIME = {")[1].split("}")[0])
 
 
+class TestFilesAreWhereTheyBelong(unittest.TestCase):
+    """Misplaced files have cost real time twice: `ops/static/main.py` (the
+    app entrypoint copied into the PUBLISHED asset directory) and
+    `tools/test_sync_register.py` (a test beside the tool it tests, which
+    breaks discovery outright with an error naming neither file usefully).
+
+    Both came from placing individually-downloaded files by hand. Catching
+    it should not depend on someone reading a path table carefully.
+    """
+
+    def test_no_test_files_outside_the_tests_directory(self):
+        strays = []
+        for folder in ("ops", "tools"):
+            for dirpath, dirnames, filenames in os.walk(
+                    os.path.join(ROOT, folder)):
+                dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+                for name in filenames:
+                    if name.startswith("test_") and name.endswith(".py"):
+                        strays.append(os.path.relpath(
+                            os.path.join(dirpath, name), ROOT))
+        self.assertEqual(strays, [],
+                         "test files belong in tests/ -- a copy elsewhere "
+                         "breaks unittest discovery for the whole suite")
+
+    def test_no_tool_or_module_files_inside_tests(self):
+        """The mirror image: a tool copied into tests/ is imported as a test
+        module and fails obscurely."""
+        strays = [
+            name for name in os.listdir(os.path.join(ROOT, "tests"))
+            if name.endswith(".py") and not name.startswith("test_")
+            and name != "__init__.py"]
+        self.assertEqual(strays, [])
+
+
 class TestDevSessionGrantsEveryRole(unittest.TestCase):
     """No role implies another, so a dev session missing one shows up as a
     button that is not there, with nothing on screen explaining why. That

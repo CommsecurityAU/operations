@@ -56,7 +56,7 @@ CLAIM_SELECT = """
            cl.invoiced_date, cl.paid_date,
            cl.is_opening_balance, cl.is_retention_release,
            p.name AS project_name, p.job_code,
-           po.po_number,
+           po.po_number, po.is_placeholder AS po_is_placeholder,
            pe.label AS period_label, pe.fy_label, pe.month_end,
            pe.fy, pe.month_start,
            COALESCE(pt.code, '(untyped)') AS type,
@@ -346,6 +346,52 @@ def register(router: Router, db: Db) -> None:
         if result is None:
             raise HttpError(404, "not found")
         return 200, result
+
+    @router.route("/api/claims/{claim_id}/po", role=ROLE_WRITE, method="POST")
+    def po_for_claim(handler, user, claim_id):
+        """Create the order this claim bills against, and attach it.
+
+        Some jobs raise a PO per invoice, so this happens constantly and
+        should not mean leaving the month view to go and find the project.
+        The amount defaults to the claim's but is editable: one order
+        commonly covers several claims.
+        """
+        ids = scoped(user)
+        row = db.query_one(
+            """SELECT cl.*, p.entity_id AS project_entity FROM claim_line cl
+               JOIN project p ON p.id = cl.project_id WHERE cl.id = ?""",
+            (claim_id,))
+        if row is None or row["project_entity"] not in ids:
+            raise HttpError(404, "not found")
+        payload = handler.read_json()
+        number = (payload.get("po_number") or "").strip()
+        errors = {}
+        try:
+            amount = int(payload.get("amount_cents", row["amount_cents"]))
+        except (TypeError, ValueError):
+            amount = 0
+            errors["amount_cents"] = "must be a whole number of cents"
+        if amount < 0:
+            errors["amount_cents"] = "cannot be negative"
+        if number:
+            clash = db.query_one(
+                """SELECT p.name FROM customer_po po
+                   JOIN project p ON p.id = po.project_id
+                   WHERE po.po_number = ?""", (number,))
+            if clash is not None:
+                errors["po_number"] = f"already used on {clash['name']}"
+        if errors:
+            raise HttpError(400, "validation failed", errors)
+        po = db.create_customer_po({
+            "entity_id": row["project_entity"], "project_id": row["project_id"],
+            "po_number": number or None, "amount_cents": amount,
+            "issued_date": (payload.get("issued_date") or "").strip() or None,
+            "note": (payload.get("note") or "").strip() or None,
+        }, user["id"])
+        result = db.update_claim_line(
+            claim_id, {"customer_po_id": po["id"]}, user["id"],
+            "order raised for this claim")
+        return 201, {"po": po, "claim": result["claim"] if result else None}
 
     @router.route("/api/claims/{claim_id}/history", role=ROLE_READ)
     def history(handler, user, claim_id):

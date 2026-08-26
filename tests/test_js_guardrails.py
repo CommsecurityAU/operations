@@ -143,6 +143,13 @@ class TestOneMoneyConversion(unittest.TestCase):
                     offenders.append(f"{name}:{n} {line.strip()[:60]}")
         self.assertEqual(offenders, [])
 
+    def test_basis_points_are_converted_in_app_js_too(self):
+        """Rates are held in bp so 4.85% is 485 exactly. Nobody reads basis
+        points, so the conversion exists -- and it belongs beside the other
+        unit arithmetic rather than inline wherever it was first needed."""
+        body = code_only(read(os.path.join(STATIC, "app.js")))
+        self.assertIn("rate(bp)", body)
+
     def test_app_js_exports_the_conversion_for_others_to_use(self):
         body = code_only(read(os.path.join(STATIC, "app.js")))
         self.assertIn("export function toCents", body)
@@ -204,6 +211,132 @@ def bundle(entry, seen=None):
     for dep in static_imports(entry):
         bundle(dep, seen)
     return seen
+
+
+class TestTypeColoursStayQuiet(unittest.TestCase):
+    """Category colour is not severity colour.
+
+    Nine saturated type colours would leave every row coloured and nothing
+    louder for an alarm -- and this is the rule that erodes, one "make ICN
+    a bit clearer" at a time. So the chroma is checked, not just the intent.
+    """
+
+    def type_tokens(self):
+        css = code_only(read(os.path.join(STATIC, "tokens.css")))
+        return dict(re.findall(r"--type-([\w-]+):\s*(#[0-9a-fA-F]{6})", css))
+
+    @staticmethod
+    def saturation(value):
+        r, g, b = (int(value[i:i + 2], 16) / 255 for i in (1, 3, 5))
+        top, bottom = max(r, g, b), min(r, g, b)
+        return 0.0 if top == 0 else (top - bottom) / top
+
+    def test_every_type_colour_is_low_chroma(self):
+        for name, value in self.type_tokens().items():
+            self.assertLess(self.saturation(value), 0.55,
+                            f"--type-{name} is saturated enough to compete "
+                            "with an alarm")
+
+    def test_they_are_quieter_than_the_alarm(self):
+        css = code_only(read(os.path.join(STATIC, "tokens.css")))
+        alarm = re.search(r"--alarm:\s*(#[0-9a-fA-F]{6})", css).group(1)
+        worst = max(self.saturation(v) for v in self.type_tokens().values())
+        self.assertLess(worst, self.saturation(alarm))
+
+    def test_the_code_is_rendered_beside_the_chip(self):
+        """Colour never carries the meaning alone: nine low-chroma hues are
+        beyond what anyone reliably separates, and ~8% of men separate none
+        of them."""
+        body = code_only(read(os.path.join(STATIC, "app.js")))
+        block = body[body.index("export function typeCell"):]
+        block = block[:block.index("\n}")]
+        self.assertIn("aria-hidden", block)      # the chip is decorative
+        self.assertIn("text", block)             # the code is not
+
+    def test_one_renderer_for_every_screen(self):
+        """Otherwise the chip drifts: three screens, three ideas of what
+        `Q-Access` looks like."""
+        for name in ("projects.js", "claims.js", "worklist.js"):
+            body = code_only(read(os.path.join(STATIC, name)))
+            if "type" not in body:
+                continue
+            self.assertIn("typeCell", body, name)
+            self.assertNotIn("type-chip", body, f"{name} builds its own chip")
+
+
+class TestFormsAreForms(unittest.TestCase):
+    """`window.prompt` cannot carry a label, a hint, a second field or a
+    validation message, so a flow built on it silently does less than the
+    dialog beside it -- the invoicing grid dropped the issue date and the
+    note that the register recorded for the same action.
+
+    `window.confirm` stays: a destructive yes/no is exactly what it is for.
+    """
+
+    def test_no_screen_collects_input_with_a_prompt(self):
+        offenders = []
+        for name, path in static_files((".js",)):
+            body = code_only(read(path))
+            if re.search(r"window\.prompt\s*\(", body):
+                offenders.append(name)
+        self.assertEqual(offenders, [])
+
+    def test_one_sheet_helper_rather_than_one_per_screen(self):
+        """Three screens grew their own and they drifted."""
+        body = code_only(read(os.path.join(STATIC, "sheet.js")))
+        self.assertIn("export function sheet", body)
+        self.assertIn("export function field", body)
+        for name in ("popanel.js", "projectform.js"):
+            other = code_only(read(os.path.join(STATIC, name)))
+            self.assertNotIn("function sheet(", other, f"{name} has its own")
+
+
+class TestBrandColoursStayInTheChrome(unittest.TestCase):
+    """The logo is allowed to be brand; the interface is allowed to be quiet.
+
+    `--brand-orange` at full saturation is an exception colour by ISA-101
+    standards and sits 12 degrees of hue from `--alarm`. Used on a button or
+    a figure it would leave nothing louder for an actual alarm, and this is
+    exactly the rule that erodes one "just this once" at a time.
+    """
+
+    def rules_using(self, token):
+        css = code_only(read(os.path.join(STATIC, "base.css")))
+        out = []
+        for block in css.split("}"):
+            if token in block:
+                out.append(block.split("{")[0].strip())
+        return out
+
+    def test_brand_orange_is_only_the_wordmark(self):
+        self.assertEqual(self.rules_using("var(--brand-orange)"),
+                         [".wordmark em"])
+
+    def test_brand_navy_is_only_the_top_bar(self):
+        """Via --s-brand, which is the navy at a surface lightness."""
+        self.assertEqual(self.rules_using("var(--s-brand)"), [".topbar"])
+
+    def test_alarm_stays_clear_of_the_brand_orange(self):
+        """A colour whose whole job is to be unmistakable cannot sit next to
+        the one that is always on screen."""
+        def hue(value):
+            r, g, b = (int(value[i:i + 2], 16) / 255 for i in (1, 3, 5))
+            top, bottom = max(r, g, b), min(r, g, b)
+            spread = top - bottom
+            if spread == 0:
+                return 0.0
+            if top == r:
+                h = ((g - b) / spread) % 6
+            elif top == g:
+                h = (b - r) / spread + 2
+            else:
+                h = (r - g) / spread + 4
+            return h * 60
+        tokens = code_only(read(os.path.join(STATIC, "tokens.css")))
+        found = dict(re.findall(r"--(accent|alarm):\s*(#[0-9a-fA-F]{6})", tokens))
+        self.assertGreaterEqual(
+            abs(hue(found["accent"]) - hue(found["alarm"])), 25,
+            "accent and alarm are too close in hue to tell apart")
 
 
 class TestFilterValueOrder(unittest.TestCase):
@@ -276,7 +409,7 @@ class TestBudgets(unittest.TestCase):
     """
 
     SHELL = "main.js"
-    SCREENS = ("projects.js", "claims.js", "worklist.js")
+    SCREENS = ("projects.js", "claims.js", "worklist.js", "schedules.js")
 
     def size(self, names):
         return sum(os.path.getsize(os.path.join(STATIC, n)) for n in names)

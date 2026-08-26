@@ -91,9 +91,15 @@ export function datatable(model) {
       },
     }, "Clear");
 
+    // A filter with nothing in it looks broken rather than empty, and the
+    // difference matters: it usually means the field is missing from the
+    // payload, not that the data has no values.
     const panel = h("div", { class: "filter-panel", role: "group",
                              "aria-label": label, hidden: true },
-      boxes, clear);
+      boxes.length ? boxes
+                   : h("div", { class: "filter-empty" },
+                       `No ${label.toLowerCase()} values in these rows`),
+      boxes.length ? clear : null);
 
     function describe() {
       // Name the values while they fit; a count once they do not. "3
@@ -221,6 +227,40 @@ export function datatable(model) {
     while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
     for (const row of slice) {
       const attrs = { class: model.rowClass ? model.rowClass(row) : null };
+      if (model.detail) {
+        // Expanding is DOM surgery, not a repaint: rebuilding the table
+        // would close every other row and lose the scroll position.
+        attrs.class = [attrs.class, "clickable"].filter(Boolean).join(" ");
+        attrs.tabindex = "0";
+        attrs.role = "button";
+        attrs["aria-expanded"] = "false";
+        const toggle = async (event) => {
+          const tr = event.currentTarget;
+          const next = tr.nextElementSibling;
+          if (next && next.classList.contains("detail-row")) {
+            next.remove();
+            tr.setAttribute("aria-expanded", "false");
+            return;
+          }
+          tr.setAttribute("aria-expanded", "true");
+          const cell = h("td", { colspan: String(model.columns.length) },
+                         "Loading\u2026");
+          const holder = h("tr", { class: "detail-row" }, cell);
+          tr.after(holder);
+          try {
+            mount(cell, await model.detail(row));
+          } catch (err) {
+            mount(cell, document.createTextNode(err.message));
+          }
+        };
+        attrs.onclick = toggle;
+        attrs.onkeydown = (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggle(e);
+          }
+        };
+      }
       if (model.onRowClick) {
         attrs.class = [attrs.class, "clickable"].filter(Boolean).join(" ");
         attrs.tabindex = "0";

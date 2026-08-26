@@ -28,13 +28,17 @@ a:hover { text-decoration: underline; }
   height: 100%;
 }
 
+/* Navy, from the logo. Dark enough that it reads as furniture rather than
+ * decoration -- the bar should recede once you have found the nav, and a
+ * brand colour that keeps asking for attention is a brand colour in the
+ * wrong place. */
 .topbar {
   display: flex;
   align-items: center;
   gap: var(--u6);
   padding: 0 var(--u4);
   height: 44px;
-  background: var(--s-1);
+  background: var(--s-brand);
   border-bottom: 1px solid var(--line-strong);
 }
 
@@ -46,8 +50,8 @@ a:hover { text-decoration: underline; }
   line-height: var(--lh-tight);
   text-transform: uppercase;
 }
-/* The one place the accent appears when nothing is wrong. */
-.wordmark em { font-style: normal; color: var(--accent); }
+/* The one place a saturated colour appears when nothing is wrong. */
+.wordmark em { font-style: normal; color: var(--brand-orange); }
 
 .nav { display: flex; gap: var(--u4); margin-left: var(--u4); }
 .nav a {
@@ -247,6 +251,12 @@ select.month-move:focus { border-color: var(--accent-dim); color: var(--accent);
   cursor: pointer;
 }
 .filter-opt:hover { background: var(--s-3); }
+.filter-empty {
+  padding: var(--u2) var(--u3);
+  font-size: var(--fs-micro);
+  color: var(--t-2);
+  white-space: nowrap;
+}
 .filter-opt input { accent-color: var(--accent); margin: 0; }
 
 .filter-clear {
@@ -506,6 +516,179 @@ a.signin:hover { background: var(--s-2); text-decoration: none; }
 
 @media (max-width: 560px) {
   .form-grid { grid-template-columns: 1fr; }
+}
+
+/* ---------------------------------------------------------- renewals */
+/* First and loudest on the schedules screen: the only thing there with a
+ * deadline, and the reason the screen exists. */
+.renewals { margin-bottom: var(--u4); }
+.renewals h2 {
+  margin: 0 0 var(--u2);
+  font-family: var(--font-display);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--t-1);
+}
+.renewal {
+  display: flex;
+  gap: var(--u3);
+  align-items: baseline;
+  padding: var(--u2) var(--u3);
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-left-color: var(--accent-dim);
+  background: var(--s-1);
+  font-size: var(--fs-small);
+}
+.renewal + .renewal { border-top: 0; }
+.renewal-state {
+  min-width: 7ch;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.renewal-what { color: var(--t-0); }
+/* Overdue is the one case that has already cost something. */
+.renewal.is-overdue { border-left-color: var(--alarm); }
+.renewal.is-overdue .renewal-state { color: var(--alarm); }
+
+/* ------------------------------------------------------ type chips */
+/* A small square, not a coloured row: category colour earns a few pixels,
+ * not the whole line. The code beside it carries the meaning. */
+.type {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--u2);
+  white-space: nowrap;
+}
+.type-chip {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: var(--radius);
+  background: var(--type-none);
+}
+.type-chip.t-icn        { background: var(--type-icn); }
+.type-chip.t-ibp        { background: var(--type-ibp); }
+.type-chip.t-ems        { background: var(--type-ems); }
+.type-chip.t-nsw        { background: var(--type-nsw); }
+.type-chip.t-consulting { background: var(--type-consulting); }
+.type-chip.t-service    { background: var(--type-service); }
+.type-chip.t-security   { background: var(--type-security); }
+.type-chip.t-q-access   { background: var(--type-qaccess); }
+.type-chip.t-rd         { background: var(--type-rnd); }
+
+/* ------------------------------------------------- customer orders */
+.po-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--u3);
+  margin-bottom: var(--u2);
+}
+.po-panel-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--t-1);
+}
+.po-panel-head .mono { font-variant-numeric: tabular-nums; }
+.po-list { display: flex; flex-direction: column; gap: var(--u2); }
+/* The one thing in this heading that is a finding rather than a fact. */
+.gap-note { color: var(--accent); }
+.po {
+  padding: var(--u2) var(--u3);
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-left-color: var(--line-strong);
+  background: var(--s-1);
+}
+.po-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--u3);
+  font-size: var(--fs-small);
+}
+.po-number { min-width: 14ch; }
+.po-amount { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.po-note { font-size: var(--fs-micro); margin-top: var(--u); }
+/* Not an order: it carries claims and retention from the migration, and
+ * counting it as ordered is what made a $295,000 contract read $422,833. */
+.po.is-placeholder { border-left-style: dashed; }
+.po.is-placeholder .po-number { color: var(--t-2); }
+
+.po-history { margin-top: var(--u2); }
+.po-revision {
+  display: flex;
+  gap: var(--u2);
+  align-items: baseline;
+  padding: var(--u) 0 var(--u) var(--u3);
+  border-left: 1px solid var(--line);
+  font-size: var(--fs-micro);
+}
+/* A variation and a correction look identical in the numbers. The tag is
+ * the only thing that says which, so it has to be legible at a glance. */
+.tag.is-variation  { color: var(--accent); }
+.tag.is-correction { color: var(--t-1); }
+.tag.is-unknown    { color: var(--t-2); }
+
+/* ------------------------------------------ schedule period breakdown */
+tr.detail-row td { padding: var(--u3); background: var(--s-0); }
+.periods {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--u2);
+}
+.period {
+  display: flex;
+  gap: var(--u2);
+  align-items: baseline;
+  padding: var(--u) var(--u2);
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  font-size: var(--fs-small);
+}
+.period-month { font-family: var(--font-data); min-width: 7ch; }
+.period-amount {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+.period-state, .period-extra { font-size: var(--fs-micro); color: var(--t-2); }
+
+/* Covered by this schedule: unremarkable, and most rows are this. */
+.period.is-mine { border-left-color: var(--line-strong); }
+/* A month with no claim: the only reason to press Generate. */
+.period.is-missing { border-left-color: var(--accent); }
+.period.is-missing .period-state { color: var(--accent); }
+/* A claim the schedule cannot own, because the month already holds one. */
+.period.is-unattached { border-left-color: var(--warn); }
+
+/* A coverage fraction that is short of its target: the one reason to press
+ * Generate, so it should be visible without reading both numbers. */
+td.flagged-cell { color: var(--accent); }
+
+/* An action that lives inside a cell rather than a toolbar: it should read
+ * as the missing value it fills in, not as a control competing with the
+ * row's own data. */
+button.link-button {
+  height: auto;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--accent);
+  font-size: var(--fs-small);
+}
+button.link-button:hover { text-decoration: underline; }
+
+.row-actions { display: inline-flex; gap: var(--u); }
+.row-actions button {
+  height: calc(var(--h-control) - 8px);
+  padding: 0 var(--u2);
+  font-size: var(--fs-micro);
 }
 
 /* -------------------------------------------------- states, not moods */

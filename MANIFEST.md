@@ -1,6 +1,6 @@
 # MANIFEST — where every file goes
 
-**As at:** 26 August 2026 · **547 tests** · pyright --strict clean
+**As at:** 26 August 2026 · **645 tests** · pyright --strict clean
 
 The `repo/` folder mirrors `C:\Dev\operations` exactly. Copy it over the top
 and the paths land correctly — no guessing which `main` is which.
@@ -47,12 +47,15 @@ C:\Dev\operations\
 │   │   ├── 002_job_number_range.sql   reserved block (ADR-29)
 │   │   ├── 003_invoicing.sql          customer_po, claim_line
 │   │   ├── 004_retention.sql          retention per PO, milestone dates
-│   │   └── 005_schedules.sql          recurring claims, renewals
+│   │   ├── 005_schedules.sql          recurring claims, renewals
+│   │   ├── 006_po_revisions.sql       variation vs correction
+│   │   └── 007_contract_value.sql     contract on the project (ADR-34)
 │   ├── modules/                       §6 FEATURE MODULES
 │   │   ├── __init__.py
 │   │   ├── projects.py                register CRUD, validation, routes
 │   │   ├── worklist.py                job-code resolution
-│   │   └── claims.py                  invoicing lifecycle, EOM axis
+│   │   ├── claims.py                  invoicing lifecycle, EOM axis
+│   │   └── schedules.py               recurring claims, renewals
 │   └── static/                        THE BROWSER CODE
 │       ├── index.html                 shell
 │       ├── tokens.css                 the ONLY colour/type/spacing literals
@@ -92,6 +95,8 @@ C:\Dev\operations\
     ├── test_retention.py              withholding, caps, release
     ├── test_schedules.py              generation, idempotence, renewals
     ├── test_import_claims.py          two sources, pivot reconciliation
+    ├── test_schedules_api.py          adoption, generation, renewals
+    ├── test_customer_pos.py           add, edit, revise, move, delete
     ├── test_restore.py                pre-flight and restore ordering
     └── test_secrets.py                store, CLI, no-fallback
 ```
@@ -108,11 +113,11 @@ secrets, TLS. `.gitignore` covers it.
 
 ```powershell
 cd C:\Dev\operations
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 547 OK
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 645 OK
 .\dev.ps1 -Stale                                             # running == disk?
 ```
 
-If the count is below 547, a test file did not land. If `-Stale` says STALE,
+If the count is below 645, a test file did not land. If `-Stale` says STALE,
 restart the server — Python loads a module once, so a running process can be
 several edits behind the working tree while every test passes.
 

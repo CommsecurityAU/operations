@@ -382,6 +382,80 @@ class TestRetentionHeld(Case):
         self.assertEqual(body["retention_held_cents"], 0)
 
 
+class TestRaisingAnOrderFromAClaim(Case):
+    """Some jobs raise a PO per invoice, so this happens constantly. Making
+    someone leave the month they are working on to go and find the project
+    would be the difference between a workflow and a chore."""
+
+    def make_without_po(self, **over):
+        """A claim whose project has no real order yet."""
+        claim = self.make(**over)
+        with self.db._tx() as c:
+            c.execute("UPDATE customer_po SET is_placeholder = 1 WHERE id = ?",
+                      (self.po_id,))
+        return claim
+
+    def test_it_creates_the_order_and_attaches_the_claim(self):
+        c = self.make()
+        status, body = self.call("POST", f"/api/claims/{c['id']}/po",
+                                 {"po_number": "PO06932420_255549"})
+        self.assertEqual(status, 201, body)
+        self.assertEqual(body["po"]["po_number"], "PO06932420_255549")
+        self.assertEqual(body["claim"]["customer_po_id"], body["po"]["id"])
+
+    def test_the_amount_defaults_to_the_claim(self):
+        c = self.make(amount_cents=1191660)
+        _st, body = self.call("POST", f"/api/claims/{c['id']}/po",
+                              {"po_number": "PO-A"})
+        self.assertEqual(body["po"]["amount_cents"], 1191660)
+
+    def test_but_one_order_may_cover_several_claims(self):
+        """Common practice, so the amount has to be editable rather than
+        assumed from the claim it was raised against."""
+        c = self.make(amount_cents=1191660)
+        _st, body = self.call("POST", f"/api/claims/{c['id']}/po",
+                              {"po_number": "PO-B", "amount_cents": 5000000})
+        self.assertEqual(body["po"]["amount_cents"], 5000000)
+
+    def test_a_duplicate_number_names_the_other_project(self):
+        c = self.make()
+        self.call("POST", f"/api/claims/{c['id']}/po", {"po_number": "PO-C"})
+        d = self.make(name="Another")
+        status, body = self.call("POST", f"/api/claims/{d['id']}/po",
+                                 {"po_number": "PO-C"})
+        self.assertEqual(status, 400)
+        self.assertIn("already used", body["detail"]["po_number"])
+
+    def test_it_counts_as_ordered(self):
+        """Unlike a placeholder, which exists only to carry claims."""
+        before = self.db.scalar(
+            "SELECT ordered_cents FROM v_project_orders_in_hand "
+            "WHERE project_id = ?", (self.project_id,))
+        c = self.make(amount_cents=1191660)
+        self.call("POST", f"/api/claims/{c['id']}/po", {"po_number": "PO-D"})
+        self.assertEqual(self.db.scalar(
+            "SELECT ordered_cents FROM v_project_orders_in_hand "
+            "WHERE project_id = ?", (self.project_id,)), before + 1191660)
+
+    def test_the_attachment_is_recorded(self):
+        c = self.make()
+        self.call("POST", f"/api/claims/{c['id']}/po", {"po_number": "PO-E"})
+        row = self.db.query_one(
+            """SELECT reason FROM claim_line_revision
+               WHERE claim_line_id = ? AND field = 'customer_po_id'""",
+            (c["id"],))
+        self.assertEqual(row["reason"], "order raised for this claim")
+
+    def test_a_viewer_cannot(self):
+        c = self.make()
+        self.db._write.execute(
+            "DELETE FROM user_entity_role WHERE role = 'operations'")
+        self.db._write.commit()
+        self.assertEqual(
+            self.call("POST", f"/api/claims/{c['id']}/po", {"po_number": "X"})[0],
+            403)
+
+
 class TestOpeningBalancesAreUntouchable(Case):
     def test_they_cannot_be_patched_or_moved(self):
         with self.db._tx() as c:

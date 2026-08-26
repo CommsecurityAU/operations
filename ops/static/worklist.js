@@ -3,7 +3,7 @@
 // Its emptiness is STP-5's gate, so the count is the headline figure: this
 // screen exists to reach zero, not to be lived in.
 
-import { api, fmt, h, mount, stateMessage } from "./app.js";
+import { api, fmt, h, mount, stateMessage, typeCell } from "./app.js";
 
 const ACTION_LABEL = {
   issue: "Issue the next number",
@@ -135,7 +135,7 @@ export async function render(root) {
           h("td", { class: "text-wide", title: i.project_name }, i.project_name),
           h("td", { class: "mono" }, i.raw_code),
           h("td", { class: "muted text", title: i.client }, i.client),
-          h("td", { class: "mono" }, i.type),
+          h("td", null, typeCell(i.type)),
           // Only meaningful for class C. Five projects holding the string
           // "TBA" is not a shared code, and showing "5" there reads as one.
           h("td", { class: "num" },

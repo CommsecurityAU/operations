@@ -33,6 +33,7 @@ PROJECT_SELECT = """
     SELECT v.project_id   AS id,
            v.project_name AS name,
            v.job_code, v.status, v.purchase_order_cents,
+           v.contract_value_cents, v.ordered_cents, v.ordered_unbilled_cents,
            v.invoiced_prior_cents, v.orders_in_hand_cents,
            p.needs_resolution, p.project_lead, p.project_no, p.notes,
            p.client_id, p.type_id,
@@ -40,6 +41,12 @@ PROJECT_SELECT = """
            COALESCE(c.name, '(no client)') AS client,
            -- Held and not yet released: a position, not a period figure.
            COALESCE(r.held_cents, 0) AS retention_held_cents,
+           -- The PO a schedule would bill against. One per project after
+           -- migration 003; when a project gains several this has to be
+           -- chosen rather than assumed.
+           (SELECT po.id FROM customer_po po
+            WHERE po.project_id = p.id ORDER BY po.id LIMIT 1)
+                                     AS customer_po_id,
            p.practical_completion_date, p.dlp_end_date
     FROM v_project_orders_in_hand v
     JOIN project p ON p.id = v.project_id
@@ -226,6 +233,29 @@ def _resolve_client_field(db: Db, fields: dict[str, Any], entity_id: int,
             "typed": name, "reused_existing_spelling": matched != name}
 
 
+def _money_field(raw, errors, key):
+    try:
+        amount = int(raw)
+    except (TypeError, ValueError):
+        errors[key] = "must be a whole number of cents"
+        return 0
+    if amount < 0:
+        errors[key] = "cannot be negative"
+    elif amount > MAX_MONEY_CENTS:
+        errors[key] = f"looks like a typo (over ${MAX_MONEY_CENTS // 100:,})"
+    return amount
+
+
+def _owned_po(db: Db, user: dict[str, Any], po_id):
+    row = db.query_one(
+        """SELECT h.customer_po_id, p.entity_id FROM v_customer_po_history h
+           JOIN project p ON p.id = h.project_id
+           WHERE h.customer_po_id = ?""", (po_id,))
+    if row is None or row["entity_id"] not in entity_ids(user):
+        raise HttpError(404, "not found")
+    return row
+
+
 def register(router: Router, db: Db) -> None:
     """Annotated: an untyped `router` makes every @router.route below an
     unknown decorator, which erases the type of the handler it wraps."""
@@ -252,6 +282,177 @@ def register(router: Router, db: Db) -> None:
         if row is None:
             raise HttpError(404, "not found")
         return 200, row
+
+    # ------------------------------------------------------ customer POs
+    @router.route("/api/projects/{project_id}/pos", role=ROLE_READ)
+    def list_pos(handler, user, project_id):
+        ids = entity_ids(user)
+        row = db.query_one("SELECT entity_id FROM project WHERE id = ?",
+                           (project_id,))
+        if row is None or row["entity_id"] not in ids:
+            raise HttpError(404, "not found")
+        pos = db.query(
+            """SELECT h.*, po.note, po.is_placeholder,
+                      po.retention_applies, po.retention_rate_bp,
+                      po.retention_cap_bp, po.release_policy, po.release_split_bp,
+                      r.held_cents
+               FROM v_customer_po_history h
+               JOIN customer_po po ON po.id = h.customer_po_id
+               LEFT JOIN v_po_retention_position r
+                      ON r.customer_po_id = h.customer_po_id
+               WHERE h.project_id = ? ORDER BY h.customer_po_id""", (project_id,))
+        return 200, {
+            "pos": pos,
+            "contract_value_cents": db.scalar(
+                "SELECT contract_value_cents FROM project WHERE id = ?",
+                (project_id,)),
+            # What is left to invoice, and what has actually been planned.
+            # They SHOULD agree: everything still to bill ought to sit in a
+            # month somewhere. Where they do not, the gap is either work
+            # nobody has forecast yet or a forecast that has outrun the
+            # contract -- and both are worth seeing on the project rather
+            # than discovered in a month-end total.
+            "remaining_cents": db.scalar(
+                "SELECT orders_in_hand_cents FROM v_project_orders_in_hand "
+                "WHERE project_id = ?", (project_id,)),
+            "forecast_cents": db.scalar(
+                """SELECT COALESCE(SUM(amount_cents), 0) FROM claim_line
+                   WHERE project_id = ? AND status IN ('forecast','due','approved')""",
+                (project_id,)),
+            "revisions": db.query(
+                """SELECT r.customer_po_id, r.old_value, r.new_value, r.kind,
+                          r.reason, r.effective_date, r.changed_ts,
+                          u.display_name AS changed_by
+                   FROM customer_po_revision r
+                   JOIN customer_po po ON po.id = r.customer_po_id
+                   LEFT JOIN users u ON u.id = r.changed_by
+                   WHERE po.project_id = ? ORDER BY r.changed_ts, r.id""",
+                (project_id,)),
+            "kinds": list(db.PO_KINDS),
+        }
+
+    @router.route("/api/projects/{project_id}/pos", role=ROLE_WRITE,
+                  method="POST")
+    def add_po(handler, user, project_id):
+        ids = entity_ids(user)
+        row = db.query_one("SELECT id, entity_id FROM project WHERE id = ?",
+                           (project_id,))
+        if row is None or row["entity_id"] not in ids:
+            raise HttpError(404, "not found")
+        payload = handler.read_json()
+        errors = {}
+        amount = _money_field(payload.get("amount_cents"), errors, "amount_cents")
+        number = (payload.get("po_number") or "").strip()
+        if number:
+            # Named, so it is obvious whether the duplicate is a typo or the
+            # same order genuinely reaching two projects.
+            clash = db.query_one(
+                """SELECT p.name FROM customer_po po
+                   JOIN project p ON p.id = po.project_id
+                   WHERE po.po_number = ?""", (number,))
+            if clash is not None:
+                errors["po_number"] = f"already used on {clash['name']}"
+        if errors:
+            raise HttpError(400, "validation failed", errors)
+        return 201, db.create_customer_po({
+            "entity_id": row["entity_id"], "project_id": row["id"],
+            "po_number": number or None, "amount_cents": amount,
+            "issued_date": (payload.get("issued_date") or "").strip() or None,
+            "note": (payload.get("note") or "").strip() or None,
+        }, user["id"])
+
+    @router.route("/api/pos/{po_id}/revise", role=ROLE_WRITE, method="POST")
+    def revise_po(handler, user, po_id):
+        po = _owned_po(db, user, po_id)
+        payload = handler.read_json()
+        errors = {}
+        amount = _money_field(payload.get("amount_cents"), errors, "amount_cents")
+        kind = payload.get("kind")
+        if kind not in db.PO_KINDS:
+            errors["kind"] = f"must be one of {', '.join(db.PO_KINDS)}"
+        if not (payload.get("reason") or "").strip():
+            errors["reason"] = "required"
+        if kind == "variation" and not (payload.get("effective_date") or "").strip():
+            # The day the contract changed, which is rarely the day someone
+            # typed it in -- and without it a past position cannot be
+            # reproduced.
+            errors["effective_date"] = "a variation needs the date it took effect"
+        if errors:
+            raise HttpError(400, "validation failed", errors)
+        result = db.revise_customer_po(
+            po["customer_po_id"], amount, kind,
+            payload["reason"].strip(),
+            (payload.get("effective_date") or "").strip() or None, user["id"])
+        if result is None:
+            raise HttpError(404, "not found")
+        return 200, result
+
+    @router.route("/api/pos/{po_id}", role=ROLE_WRITE, method="PATCH")
+    def update_po(handler, user, po_id):
+        po = _owned_po(db, user, po_id)
+        payload = handler.read_json()
+        if "amount_cents" in payload:
+            raise HttpError(400, "validation failed", {
+                "amount_cents": "changing the value needs a reason; use revise"})
+        result = db.update_customer_po(po["customer_po_id"], payload, user["id"])
+        if result is None:
+            raise HttpError(404, "not found")
+        return 200, result
+
+    @router.route("/api/pos/{po_id}/move", role=ROLE_WRITE, method="POST")
+    def move_po(handler, user, po_id):
+        """Put an order on the right project.
+
+        Not admin-only: putting a PO on the wrong project is an ordinary
+        slip made while typing, and requiring an admin to undo it would make
+        the mistake more expensive than it is. The claim guard is what keeps
+        it safe.
+        """
+        po = _owned_po(db, user, po_id)
+        payload = handler.read_json()
+        target = db.query_one(
+            "SELECT id, entity_id FROM project WHERE id = ?",
+            (payload.get("project_id"),))
+        if target is None or target["entity_id"] not in entity_ids(user):
+            raise HttpError(400, "validation failed",
+                            {"project_id": "required; a project on this entity"})
+        blocked = db.customer_po_is_movable(po["customer_po_id"])
+        if blocked:
+            raise HttpError(409, blocked)
+        try:
+            result = db.move_customer_po(
+                po["customer_po_id"], target["id"], user["id"])
+        except ValueError as e:
+            raise HttpError(409, str(e))
+        if result is None:
+            raise HttpError(404, "not found")
+        return 200, result
+
+    @router.route("/api/pos/{po_id}", role=ROLE_DELETE, method="DELETE")
+    def delete_po(handler, user, po_id):
+        po = _owned_po(db, user, po_id)
+        blocked = db.customer_po_is_deletable(po["customer_po_id"])
+        if blocked:
+            raise HttpError(409, blocked)
+        db.delete_customer_po(po["customer_po_id"], user["id"])
+        handler._send(204, b"", content_type="application/json")
+        return None
+
+    @router.route("/api/renewals", role=ROLE_READ)
+    def renewals(handler, user):
+        """Agreements coming up, for the register to surface.
+
+        They live on the Schedules screen, but nothing sends you there --
+        and a maintenance agreement that lapses unnoticed is revenue that
+        simply stops. Only what needs attention is returned; a list of
+        renewals due in eight months is a list nobody reads.
+        """
+        ids = entity_ids(user)
+        if not ids:
+            return 200, {"renewals": []}
+        rows = [dict(r) for r in db.upcoming_renewals(entity_ids=ids)
+                if r["renewal_state"] in ("overdue", "due")]
+        return 200, {"renewals": rows}
 
     @router.route("/api/reference", role=ROLE_READ)
     def reference(handler, user):

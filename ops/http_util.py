@@ -220,7 +220,13 @@ class Handler(BaseHTTPRequestHandler):
                 raise HttpError(500, "no router configured")
             fn, role, params = self.router.match(self.command, path)
             if fn is None:
-                raise HttpError(404, "not found")
+                # Names the PATH, not just "not found". A handler saying
+                # `not found` because an id is unknown and the router
+                # saying it because the route does not exist read
+                # identically -- and the second happens whenever a module
+                # gains a route and the server has not been restarted,
+                # which is the commonest cause of both.
+                raise HttpError(404, f"no route for {self.command} {path}")
             if self.command not in SAFE_METHODS:
                 if not same_origin(self.headers, self.headers.get("Host")):
                     raise HttpError(403, "cross-origin request refused")

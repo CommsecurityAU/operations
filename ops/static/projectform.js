@@ -4,6 +4,7 @@
 // comes free. Rebuilding that by hand is where accessibility quietly goes.
 
 import { api, h, moneyInput, mount, toCents } from "./app.js";
+import { field as sheetField, sheet } from "./sheet.js";
 
 function field(label, control, hint) {
   const error = h("span", { class: "field-error" });
@@ -214,22 +215,32 @@ export function projectForm({ project, reference, onSaved, onDeleted, canDelete 
   }
 
   if (fixCode) {
-    fixCode.addEventListener("click", async () => {
-      const code = window.prompt(
-        `Correct the job code for ${p.name}.\nCurrently ${p.job_code}.`,
-        p.job_code);
-      if (!code || code.trim() === p.job_code) return;
-      const reason = window.prompt("Why is the current code wrong?");
-      if (!reason || !reason.trim()) return;
-      clearErrors();
-      try {
-        await api("POST", `/api/projects/${p.id}/job-code`,
-                  { job_code: code.trim(), reason: reason.trim() });
-        dialog.close();
-        onSaved(p, true, `Job code corrected to ${code.trim()}`);
-      } catch (err) {
-        showErrors(err);
-      }
+    fixCode.addEventListener("click", () => {
+      // A form, not two prompts: the reason is recorded against the change
+      // and someone will read it later, so it deserves more than a
+      // single-line box with no context.
+      const controls = {
+        job_code: sheetField("New job code",
+          h("input", { type: "text", value: p.job_code,
+                       "aria-label": "New job code" }),
+          `Currently ${p.job_code}`),
+        reason: sheetField("Reason",
+          h("textarea", { rows: 2, "aria-label": "Reason" }),
+          "Why the current code is wrong \u2014 recorded against the project"),
+      };
+      sheet(`Correct the job code \u00b7 ${p.name}`, p.job_code,
+        { fields: Object.values(controls).map((c) => c.wrap),
+          controls: Object.values(controls), byKey: controls },
+        "Correct it",
+        async () => {
+          const code = controls.job_code.control.value.trim();
+          await api("POST", `/api/projects/${p.id}/job-code`, {
+            job_code: code,
+            reason: controls.reason.control.value.trim(),
+          });
+          dialog.close();
+          onSaved(p, true, `Job code corrected to ${code}`);
+        });
     });
   }
 

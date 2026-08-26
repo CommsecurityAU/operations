@@ -10,7 +10,7 @@
 // server returned. A grid that shows what you asked for rather than what
 // happened is how a month gets closed on figures nobody checked.
 
-import { api, fmt, h, mount, stateMessage } from "./app.js";
+import { api, fmt, h, mount, stateMessage, typeCell } from "./app.js";
 import { datatable } from "./datatable.js";
 
 const STATUS_LABEL = {
@@ -198,6 +198,36 @@ export async function render(root) {
     return select;
   }
 
+  // Some jobs raise a PO per invoice, so this happens constantly. Doing it
+  // from the row means not leaving the month you are working on.
+  function poCell(claim) {
+    if (claim.is_opening_balance) return h("span", { class: "muted" }, "\u2013");
+    if (claim.po_number) return h("span", { class: "mono" }, claim.po_number);
+    if (!canWrite) return h("span", { class: "muted" }, "no order");
+    const button = h("button", { type: "button", class: "link-button" },
+      "Add PO");
+    button.addEventListener("click", async () => {
+      // The same dialog the register uses. Loaded on demand, because most
+      // visits to this screen never raise an order.
+      const { poDialog } = await import("./popanel.js");
+      poDialog({
+        title: `New PO \u00b7 ${claim.project_name}`,
+        subtitle: claim.job_code,
+        presetCents: claim.amount_cents,
+        hint: "Ex-GST. One order often covers several claims, so this need "
+              + "not match the claim it is raised from.",
+        submit: async (payload) => {
+          const result = await api("POST", `/api/claims/${claim.id}/po`, payload);
+          say(`${claim.project_name}: order `
+              + `${result.po.po_number || "(no number)"} raised for `
+              + fmt.money(result.po.amount_cents));
+          await load();
+        },
+      });
+    });
+    return button;
+  }
+
   function statusCell(claim, transitions) {
     const allowed = transitions[claim.status] || [];
     if (!canWrite || !allowed.length || claim.is_opening_balance) {
@@ -270,8 +300,9 @@ export async function render(root) {
       { key: "project_name", label: "Project", cls: () => "text-wide" },
       { key: "job_code", label: "Job code", cls: () => "mono" },
       { key: "client", label: "Client", cls: () => "muted text" },
-      { key: "type", label: "Type", cls: () => "mono" },
+      { key: "type", label: "Type", fmt: (v) => typeCell(v) },
       { key: "detail", label: "Detail", cls: () => "muted text" },
+      { key: "po_number", label: "Order", fmt: (_v, r) => poCell(r) },
       { key: "invoice_number", label: "Invoice", cls: () => "mono",
         fmt: (v) => v || "\u2013" },
       { key: "amount_cents", label: "Amount", align: "right", fmt: fmt.moneyDash },

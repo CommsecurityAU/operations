@@ -65,11 +65,15 @@ if ($Stale) {
         Write-Host "  No server answering on $Port." -ForegroundColor Yellow
         exit 1
     }
+    $assets = (& $py -c "import sys; sys.path.insert(0,'.'); from ops.main import asset_fingerprint; print(asset_fingerprint())").Trim()
     Write-Host ""
     Write-Host "  running  $running"
     Write-Host "  on disk  $disk"
+    Write-Host "  assets   $assets"
     if ($running -eq $disk) {
-        Write-Host "  current." -ForegroundColor Green
+        Write-Host "  server is current. Compare `assets` against the value" -ForegroundColor Green
+        Write-Host "  quoted with the last batch: static files are read per" -ForegroundColor Green
+        Write-Host "  request, so a stale one shows here and nowhere else." -ForegroundColor Green
         Write-Host ""
         exit 0
     }

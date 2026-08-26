@@ -180,6 +180,10 @@ def load(conn, parsed):
              po, prior, 1 if cls else 0,
              (r.get("Notes") or "").strip() or None, row_no, now))
         pid = cur.lastrowid
+        # The register's `Purchase Order` column is the CONTRACT VALUE, not
+        # a customer order (migration 007).
+        cur.execute("UPDATE project SET contract_value_cents = ? WHERE id = ?",
+                    (po, pid))
 
         # EXPAND-WINDOW DUAL WRITE (migration 003). The legacy columns are
         # still read by the previous release; the view now reads customer_po
@@ -188,8 +192,9 @@ def load(conn, parsed):
         if po:
             cur.execute(
                 """INSERT INTO customer_po
-                   (entity_id, project_id, amount_cents, note, created_ts)
-                   VALUES (?,?,?,?,?)""",
+                   (entity_id, project_id, amount_cents, note,
+                    is_placeholder, created_ts)
+                   VALUES (?,?,?,?,1,?)""",
                 (entity_id, pid, po, "migrated from the FY27 register", now))
         if prior:
             cur.execute(

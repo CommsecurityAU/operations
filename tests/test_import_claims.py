@@ -181,6 +181,37 @@ class TestIncrementalSync(Case):
         self.assertEqual(added, 1)
 
 
+class TestTheWorkbookColumnsSurvive(Case):
+    """`Task` is the workbook's LINE ITEM -- `Client Training`, `SAT`,
+    `Design - Stage 2`. It was folded into `detail` and the column left
+    empty, so the claim plan had nothing to group on and five tasks
+    collapsed into the one phase above them. Four of them were invisible."""
+
+    def setUp(self):
+        super().setUp()
+        self.assertEqual(self.run_import("--accept-variance"), 0)
+
+    def test_the_task_column_is_populated(self):
+        self.assertGreater(self.db.scalar(
+            "SELECT COUNT(*) FROM claim_line WHERE task IS NOT NULL"), 100)
+
+    def test_a_known_task_arrives_intact(self):
+        self.assertEqual(self.db.scalar(
+            """SELECT COUNT(*) FROM claim_line cl
+               JOIN project p ON p.id = cl.project_id
+               WHERE p.name = '200 Victoria - IBP' AND cl.task = 'Client Training'"""),
+            1)
+
+    def test_phase_and_task_are_kept_apart(self):
+        """One groups the other; storing only one loses the distinction."""
+        row = self.db.query_one(
+            """SELECT cl.phase, cl.task FROM claim_line cl
+               JOIN project p ON p.id = cl.project_id
+               WHERE p.name = '200 Victoria - IBP' AND cl.task = 'SAT'""")
+        self.assertEqual(row["phase"], "Commissioning & Site Acceptance Testing")
+        self.assertEqual(row["task"], "SAT")
+
+
 class TestAfterImport(Case):
     def setUp(self):
         super().setUp()

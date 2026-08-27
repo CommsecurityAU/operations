@@ -1,6 +1,6 @@
 # MANIFEST — where every file goes
 
-**As at:** 26 August 2026 · **645 tests** · pyright --strict clean
+**As at:** 27 August 2026 · **708 tests** · pyright --strict clean
 
 The `repo/` folder mirrors `C:\Dev\operations` exactly. Copy it over the top
 and the paths land correctly — no guessing which `main` is which.
@@ -49,13 +49,17 @@ C:\Dev\operations\
 │   │   ├── 004_retention.sql          retention per PO, milestone dates
 │   │   ├── 005_schedules.sql          recurring claims, renewals
 │   │   ├── 006_po_revisions.sql       variation vs correction
-│   │   └── 007_contract_value.sql     contract on the project (ADR-34)
+│   │   ├── 007_contract_value.sql     contract on the project (ADR-34)
+│   │   ├── 008_claim_plan.sql         items and allocations (ADR-37)
+│   │   ├── 009_plannable.sql          plan what is left to claim (ADR-39)
+│   │   └── 010_allocation_claim.sql   an allocation owns its claim (ADR-38)
 │   ├── modules/                       §6 FEATURE MODULES
 │   │   ├── __init__.py
 │   │   ├── projects.py                register CRUD, validation, routes
 │   │   ├── worklist.py                job-code resolution
 │   │   ├── claims.py                  invoicing lifecycle, EOM axis
-│   │   └── schedules.py               recurring claims, renewals
+│   │   ├── schedules.py               recurring claims, renewals
+│   │   └── claimplan.py               items, allocations, generation
 │   └── static/                        THE BROWSER CODE
 │       ├── index.html                 shell
 │       ├── tokens.css                 the ONLY colour/type/spacing literals
@@ -97,6 +101,8 @@ C:\Dev\operations\
     ├── test_import_claims.py          two sources, pivot reconciliation
     ├── test_schedules_api.py          adoption, generation, renewals
     ├── test_customer_pos.py           add, edit, revise, move, delete
+    ├── test_claim_plan.py             items, allocations, generation
+    ├── test_backfill_task.py          matching claims to workbook rows
     ├── test_restore.py                pre-flight and restore ordering
     └── test_secrets.py                store, CLI, no-fallback
 ```
@@ -113,11 +119,11 @@ secrets, TLS. `.gitignore` covers it.
 
 ```powershell
 cd C:\Dev\operations
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 645 OK
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 708 OK
 .\dev.ps1 -Stale                                             # running == disk?
 ```
 
-If the count is below 645, a test file did not land. If `-Stale` says STALE,
+If the count is below 708, a test file did not land. If `-Stale` says STALE,
 restart the server — Python loads a module once, so a running process can be
 several edits behind the working tree while every test passes.
 

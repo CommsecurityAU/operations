@@ -96,6 +96,13 @@ def parse(text: Any) -> int:
     return -cents if negative else cents
 
 
+def format_rate(bp: int) -> str:
+    """Basis points as a percentage: 1000 -> `10%`, 3333 -> `33.33%`."""
+    whole, part = divmod(abs(bp), 100)
+    text = f"{whole}.{part:02d}" if part else str(whole)
+    return f"{'-' if bp < 0 else ''}{text}%"
+
+
 def format(cents: int) -> str:
     """Cents -> '$1,234.56'. Negatives in parentheses, matching the source."""
     sign = cents < 0

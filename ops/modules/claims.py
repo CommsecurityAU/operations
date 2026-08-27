@@ -286,10 +286,20 @@ def register(router: Router, db: Db) -> None:
                 "reason": f"this claim is {row['status']}, so moving it is "
                           "slippage; say why"})
 
+        was_period = row["period_id"]
         result = db.update_claim_line(claim_id, fields, user["id"],
                                       (payload.get("reason") or "").strip() or None)
         if result is None:
             raise HttpError(404, "not found")
+        # The plan follows its claim. Leaving it behind would make the two
+        # disagree, and the next Generate would move the claim back --
+        # silently undoing the decision just made.
+        if moving and row["from_plan"]:
+            moved = db.move_plan_allocations(
+                claim_id, was_period, fields["period_id"], user["id"])
+            # A list, because the response is typed as carrying dicts and
+            # lists; and it says WHICH months so the grid can repaint them.
+            result["plan_moved"] = [fields["period_id"]] if moved else []
         return 200, result
 
     @router.route("/api/claims/{claim_id}/status", role=ROLE_WRITE,
@@ -345,6 +355,11 @@ def register(router: Router, db: Db) -> None:
             reason or None, user["id"])
         if result is None:
             raise HttpError(404, "not found")
+        # A month that has been billed cannot be re-spread afterwards -- the
+        # same boundary as slippage, applied to the plan that produced it.
+        if to_status == "invoiced" and row["from_plan"]:
+            result["locked_allocations"] = db.lock_plan_for_claim(
+                claim_id, user["id"])
         return 200, result
 
     @router.route("/api/claims/{claim_id}/po", role=ROLE_WRITE, method="POST")

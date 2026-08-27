@@ -117,11 +117,23 @@ class TestNoExternalCode(unittest.TestCase):
         self.assertEqual(offenders, [])
 
     def test_imports_are_relative(self):
+        """Anchored to the start of a line, because `from "..."` also occurs
+        inside ordinary strings -- a sentence containing the word matched,
+        and the failure named a fragment of prose as a non-relative import.
+        A real import statement begins a line."""
         for name, path in static_files((".js",)):
-            for m in re.finditer(r"""from\s+["']([^"']+)["']""",
-                                 code_only(read(path))):
+            for m in re.finditer(
+                    r"""^\s*(?:import|export)[^;\n]*?from\s+["']([^"']+)["']""",
+                    code_only(read(path)), re.M):
                 self.assertTrue(m.group(1).startswith("./"),
                                 f"{name}: non-relative import {m.group(1)!r}")
+
+    def test_the_import_check_still_sees_a_real_one(self):
+        """Anchoring could have made it match nothing at all."""
+        found = re.findall(
+            r"""^\s*(?:import|export)[^;\n]*?from\s+["']([^"']+)["']""",
+            code_only(read(os.path.join(STATIC, "claims.js"))), re.M)
+        self.assertIn("./app.js", found)
 
 
 class TestOneMoneyConversion(unittest.TestCase):
@@ -262,6 +274,55 @@ class TestTypeColoursStayQuiet(unittest.TestCase):
                 continue
             self.assertIn("typeCell", body, name)
             self.assertNotIn("type-chip", body, f"{name} builds its own chip")
+
+
+class TestNothingIsUsedUndeclared(unittest.TestCase):
+    """A module-level constant used but never declared.
+
+    It happened: `REMEMBERED` survived one edit and its declaration did not,
+    so `datatable.js` threw `ReferenceError` on every page and the register
+    would not render at all. Nothing caught it -- the Python suite never
+    executes the JavaScript, and the image has no runtime to execute it
+    with.
+
+    Scanning for it needs no runtime. Module-scope constants are written in
+    CAPS by convention here, which makes them findable: every one used must
+    be declared in the file or imported into it.
+    """
+
+    IDENTIFIER = re.compile(r"(?<![.\w$])([A-Z][A-Z0-9_]{2,})\b")
+
+    def declared_in(self, body):
+        names = set(re.findall(
+            r"^\s*(?:export\s+)?(?:const|let|var|function|class)\s+"
+            r"([A-Z][A-Z0-9_]{2,})\b", body, re.M))
+        for line in re.findall(r"^\s*import\s+\{([^}]*)\}", body, re.M):
+            names.update(part.strip().split(" as ")[-1].strip()
+                         for part in line.split(","))
+        return names
+
+    def test_every_caps_constant_is_declared_or_imported(self):
+        for name, path in static_files((".js",)):
+            body = code_only(read(path))
+            # Strings hold prose and CSS; only code is being checked.
+            code = re.sub(r"""(["'`])(?:\\.|(?!\1).)*\1""", '""', body)
+            declared = self.declared_in(body)
+            used = set(self.IDENTIFIER.findall(code))
+            missing = sorted(used - declared - self.BUILT_IN)
+            self.assertEqual(missing, [], f"{name}: used but never declared")
+
+    #: Globals the browser provides, and shapes that read as constants.
+    BUILT_IN = {"URL", "JSON", "Math", "Set", "Map", "Node", "Number",
+                "Object", "Array", "String", "Boolean", "Date", "Promise",
+                "Intl", "NaN", "FormData", "Blob", "Error", "RegExp",
+                "GET", "POST", "PATCH", "DELETE", "PUT"}
+
+    def test_the_scan_would_catch_a_missing_declaration(self):
+        """Mutation, because a scan that matches nothing passes silently."""
+        body = 'const state = REMEMBERED.get(key);\n'
+        used = set(self.IDENTIFIER.findall(body))
+        self.assertIn("REMEMBERED", used)
+        self.assertNotIn("REMEMBERED", self.declared_in(body))
 
 
 class TestFormsAreForms(unittest.TestCase):

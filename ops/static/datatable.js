@@ -11,23 +11,58 @@
 
 import { fmt, h, mount } from "./app.js";
 
+// Filters, search and sort survive a repaint. Acting on a row reloads the
+// screen, and losing the filter every time means re-selecting a project
+// after each move -- which makes the grid unusable for the exact work it
+// exists for. Keyed by screen, so two tables never share state.
+const REMEMBERED = new Map();
+
+export function forgetTableState(key) {
+  REMEMBERED.delete(key);
+}
+
 export function datatable(model) {
+  // Restored where the screen asked to be remembered. Filters are Sets, so
+  // they are rebuilt from the stored arrays rather than shared -- a Set
+  // handed back would be mutated by the new table and leak into the old.
+  const saved = model.stateKey ? REMEMBERED.get(model.stateKey) : null;
   const state = {
-    sortKey: null, sortDir: 1, page: 0,
-    search: "", filters: {},
+    sortKey: saved ? saved.sortKey : null,
+    sortDir: saved ? saved.sortDir : 1,
+    page: saved ? saved.page : 0,
+    search: saved ? saved.search : "",
+    filters: {},
     pageSize: model.pageSize || 100,
   };
+
+  function remember() {
+    if (!model.stateKey) return;
+    REMEMBERED.set(model.stateKey, {
+      sortKey: state.sortKey, sortDir: state.sortDir, page: state.page,
+      search: state.search,
+      filters: Object.fromEntries(
+        Object.entries(state.filters).map(([k, v]) => [k, [...v]])),
+    });
+  }
 
   const tbody = h("tbody");
   const count = h("span", { class: "count" });
   const thead = h("thead");
-  const prev = h("button", { type: "button", onclick: () => { state.page--; paint(); } }, "Previous");
-  const next = h("button", { type: "button", onclick: () => { state.page++; paint(); } }, "Next");
+  const prev = h("button", { type: "button", onclick: () => { state.page--; remember(); paint(); } }, "Previous");
+  const next = h("button", { type: "button", onclick: () => { state.page++; remember(); paint(); } }, "Next");
 
   const search = model.searchKeys
     ? h("input", {
         type: "search", placeholder: "Search", "aria-label": "Search",
-        oninput: (e) => { state.search = e.target.value.toLowerCase(); state.page = 0; paint(); },
+        // Restored, or the box looks empty while the rows are still
+        // filtered by what was typed before the repaint.
+        value: state.search,
+        oninput: (e) => {
+          state.search = e.target.value.toLowerCase();
+          state.page = 0;
+          remember();
+          paint();
+        },
       })
     : null;
 
@@ -55,7 +90,12 @@ export function datatable(model) {
       return x < y ? -1 : x > y ? 1 : 0;
     });
 
-    const chosen = new Set((model.filterDefaults || {})[key] || []);
+    // A remembered choice wins over the default: the default is where to
+    // start, not where to return to.
+    const chosen = new Set(
+      saved && saved.filters && saved.filters[key]
+        ? saved.filters[key]
+        : (model.filterDefaults || {})[key] || []);
     state.filters[key] = chosen;
 
     const caption = document.createTextNode(`All ${label.toLowerCase()}`);
@@ -75,6 +115,7 @@ export function datatable(model) {
         onchange: (e) => {
           if (e.target.checked) chosen.add(String(v)); else chosen.delete(String(v));
           state.page = 0;
+          remember();
           describe();
           paint();
         },
@@ -87,7 +128,7 @@ export function datatable(model) {
       onclick: () => {
         chosen.clear();
         for (const b of boxes) b.firstChild.checked = false;
-        state.page = 0; describe(); paint();
+        state.page = 0; remember(); describe(); paint();
       },
     }, "Clear");
 
@@ -183,6 +224,7 @@ export function datatable(model) {
         const key = col.sortKey || col.key;
         if (state.sortKey === key) state.sortDir = -state.sortDir;
         else { state.sortKey = key; state.sortDir = 1; }
+        remember();
         state.page = 0;
         paint();
       },

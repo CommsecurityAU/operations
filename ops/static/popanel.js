@@ -241,7 +241,9 @@ function remainderNote(data) {
   const remaining = data.remaining_cents ?? 0;
   const forecast = data.forecast_cents ?? 0;
   const gap = remaining - forecast;
-  if (gap === 0) {
+  // A cent is rounding in the source, not a finding. Two projects differ by
+  // exactly that, and amber on both would teach the eye to skip the note.
+  if (Math.abs(gap) <= 100) {
     return h("span", { class: "muted" },
       `\u00b7 ${fmt.money(remaining)} left to invoice, all of it forecast`);
   }

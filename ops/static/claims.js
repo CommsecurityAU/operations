@@ -328,6 +328,10 @@ export async function render(root) {
             onVisible: summarise,
             pageSize: 200,
             exportName: "invoicing",
+            // Acting on a row reloads the screen. Without this the project
+            // filter clears on every move, and re-selecting it each time
+            // makes the grid unusable for the work it exists for.
+            stateKey: "invoicing",
           })
         : stateMessage("No claims yet",
                        "Import the forecast, or add one.", false)));

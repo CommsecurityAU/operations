@@ -67,6 +67,17 @@ export const fmt = {
   // exactly, but nobody reads basis points -- and the conversion belongs
   // here with the other unit arithmetic rather than inline wherever it
   // happened to be needed.
+  // The other direction: `10` -> 1000 basis points, `33.33` -> 3333. Here
+  // for the same reason as `rate` -- unit arithmetic belongs in one place,
+  // and a stray /100 or *100 is how a figure quietly becomes a hundred
+  // times itself.
+  toBp(percent) {
+    const n = Number(percent);
+    return Number.isFinite(n) ? Math.round(n * 100) : 0;
+  },
+  fromBp(bp) {
+    return bp === null || bp === undefined ? "" : String(bp / 100);
+  },
   rate(bp) {
     if (bp === null || bp === undefined) return "";
     const whole = Math.trunc(Math.abs(bp) / 100);

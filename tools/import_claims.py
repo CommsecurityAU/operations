@@ -231,6 +231,10 @@ def resolve(db, issued, planned):
                 "amount_cents": cents(r["Invoice Amount"]),
                 "detail": (r.get("Detail") or r.get("Task") or "").strip() or None,
                 "phase": (r.get("Phase") or "").strip() or None,
+                # The workbook's LINE ITEM. It was folded into `detail` and
+                # the column left empty, so the claim plan had nothing to
+                # group on and five tasks collapsed into their phase.
+                "task": (r.get("Task") or "").strip() or None,
                 "reference": (r.get("Reference") or "").strip() or None,
                 "invoice_number": (r.get("Invoice Number") or "").strip() or None,
                 "invoiced_date": None,

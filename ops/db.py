@@ -15,6 +15,7 @@ Handlers never write SQL. Every mutation is a `Db` method whose body runs in
 
 import contextlib
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -928,6 +929,523 @@ class Db:
                 "SELECT * FROM claim_line WHERE id = ?", (claim_id,)).fetchone()),
                 "from": from_status, "to": to_status,
                 "retention_cents": retention}
+
+    # -------------------------------------------------------- claim plan
+    ITEM_MUTABLE = ("name", "value_cents", "sequence", "note", "is_variation")
+
+    def create_claim_item(self, fields, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            nxt = c.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM claim_item "
+                "WHERE project_id = ?", (fields["project_id"],)).fetchone()[0]
+            cur = c.execute(
+                """INSERT INTO claim_item (entity_id, project_id, name,
+                       value_cents, is_variation, sequence, note,
+                       created_by, created_ts)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (fields["entity_id"], fields["project_id"], fields["name"],
+                 fields["value_cents"], fields.get("is_variation", 0),
+                 fields.get("sequence", nxt), fields.get("note"),
+                 actor_id, now))
+            item_id = cur.lastrowid
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'claim_item_create','claim_item',?,?)""",
+                (now, actor_id, str(item_id),
+                 f"{fields['name']} {money.format(fields['value_cents'])}"))
+            return dict(c.execute("SELECT * FROM claim_item WHERE id = ?",
+                                  (item_id,)).fetchone())
+
+    def update_claim_item(self, item_id, changes, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            before = c.execute("SELECT * FROM claim_item WHERE id = ?",
+                               (item_id,)).fetchone()
+            if before is None:
+                return None
+            applied = []
+            for key in self.ITEM_MUTABLE:
+                if key not in changes or before[key] == changes[key]:
+                    continue
+                c.execute(f"UPDATE claim_item SET {key} = ? WHERE id = ?",
+                          (changes[key], item_id))
+                applied.append(key)
+                c.execute(
+                    """INSERT INTO audit_log (ts, actor_user_id, action,
+                           target_type, target_id, detail)
+                       VALUES (?,?,'claim_item_update','claim_item',?,?)""",
+                    (now, actor_id, str(item_id),
+                     f"{key}: {before[key]!r} -> {changes[key]!r}"))
+            return {"item": dict(c.execute(
+                "SELECT * FROM claim_item WHERE id = ?", (item_id,)).fetchone()),
+                "changed": sorted(applied)}
+
+    def claim_item_is_deletable(self, item_id):
+        locked = self.scalar(
+            """SELECT COUNT(*) FROM claim_allocation
+               WHERE claim_item_id = ? AND locked_claim_id IS NOT NULL""",
+            (item_id,))
+        if locked:
+            return (f"{locked} of its months have been invoiced; the plan "
+                    "behind an issued invoice is history")
+        return None
+
+    def delete_claim_item(self, item_id, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            row = c.execute("SELECT name, value_cents FROM claim_item "
+                            "WHERE id = ?", (item_id,)).fetchone()
+            if row is None:
+                return False
+            c.execute("DELETE FROM claim_allocation WHERE claim_item_id = ?",
+                      (item_id,))
+            c.execute("DELETE FROM claim_item WHERE id = ?", (item_id,))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'claim_item_delete','claim_item',?,?)""",
+                (now, actor_id, str(item_id),
+                 f"{row['name']} {money.format(row['value_cents'])}"))
+            return True
+
+    def set_allocation(self, item_id, period_id, percent_bp, amount_cents,
+                       actor_id, note=None):
+        """One item's share of one month.
+
+        The AMOUNT is the fact and the percentage is how it was expressed --
+        `33.33%` of $79,444 is $26,478.69 while the agreed figure was
+        $26,481.33, a third displayed rounded. Deriving one from the other
+        at read time would move money.
+
+        Setting an amount of zero removes the allocation: a month an item no
+        longer contributes to should not linger as a row saying nothing.
+        """
+        now = int(time.time())
+        with self._tx() as c:
+            existing = c.execute(
+                """SELECT id, amount_cents, locked_claim_id FROM claim_allocation
+                   WHERE claim_item_id = ? AND period_id = ?""",
+                (item_id, period_id)).fetchone()
+            if existing and existing["locked_claim_id"] is not None:
+                raise ValueError(
+                    "that month has been invoiced; amend the claim instead")
+            if not amount_cents:
+                if existing:
+                    c.execute("DELETE FROM claim_allocation WHERE id = ?",
+                              (existing["id"],))
+                return {"removed": bool(existing)}
+            if existing:
+                c.execute(
+                    """UPDATE claim_allocation
+                       SET percent_bp = ?, amount_cents = ?, note = ?
+                       WHERE id = ?""",
+                    (percent_bp, amount_cents, note, existing["id"]))
+                allocation_id = existing["id"]
+            else:
+                cur = c.execute(
+                    """INSERT INTO claim_allocation (claim_item_id, period_id,
+                           percent_bp, amount_cents, note, created_by, created_ts)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (item_id, period_id, percent_bp, amount_cents, note,
+                     actor_id, now))
+                allocation_id = cur.lastrowid
+            return {"id": allocation_id, "amount_cents": amount_cents}
+
+    def generate_plan_claims(self, project_id, actor_id, customer_po_id=None):
+        """Turn the plan into claims. IDEMPOTENT, and it never touches a
+        month that has been invoiced.
+
+        AT MOST one claim per project per month: a month with no allocations
+        produces nothing rather than a zero row, which is what the workbook
+        does when a project is not claimed that month.
+
+        The detail reads the way the workbook writes it -- `Project
+        Management, 10% $3,350 - Design / Engineering, 25% $7,512.50` -- so
+        the claim says what it is made of rather than presenting a total
+        nobody can decompose.
+        """
+        now = int(time.time())
+        project = self.query_one(
+            "SELECT entity_id FROM project WHERE id = ?", (project_id,))
+        if project is None:
+            return {"created": 0, "updated": 0, "locked": 0, "months": []}
+        po_id = customer_po_id or self.scalar(
+            "SELECT id FROM customer_po WHERE project_id = ? ORDER BY id LIMIT 1",
+            (project_id,))
+        if po_id is None:
+            # A claim has to bill against something. On a job where orders
+            # arrive as the work does there may be none yet, so a
+            # placeholder carries the claims until a real one is raised --
+            # the same device the claims importer uses, and excluded from
+            # `ordered` for the same reason.
+            with self._tx() as c:
+                cur = c.execute(
+                    """INSERT INTO customer_po (entity_id, project_id,
+                           amount_cents, note, is_placeholder, created_by,
+                           created_ts)
+                       VALUES (?,?,0,?,1,?,?)""",
+                    (project["entity_id"], project_id,
+                     "placeholder: planned claims with no order raised yet",
+                     actor_id, now))
+                po_id = cur.lastrowid
+        created, updated, locked, touched = 0, 0, 0, []
+        for allocation in self.query(
+                """SELECT a.id, a.period_id, a.amount_cents, a.percent_bp,
+                          a.note, a.claim_line_id, a.locked_claim_id,
+                          i.name AS item_name, pe.label
+                   FROM claim_allocation a
+                   JOIN claim_item i ON i.id = a.claim_item_id
+                   JOIN period pe ON pe.id = a.period_id
+                   WHERE i.project_id = ?
+                   ORDER BY pe.month_start, i.sequence, i.id""",
+                (project_id,)):
+            if allocation["locked_claim_id"] is not None:
+                locked += 1
+                continue
+            # The detail says what the claim IS -- the item, its share, and
+            # whatever the workbook called the task. A total nobody can
+            # decompose is a total nobody can check.
+            detail = f"{allocation['item_name']}"
+            if allocation["percent_bp"]:
+                detail += f", {money.format_rate(allocation['percent_bp'])}"
+            if allocation["note"]:
+                detail += f" \u2014 {allocation['note']}"
+            existing = None
+            if allocation["claim_line_id"]:
+                existing = self.query_one(
+                    "SELECT id, status, period_id FROM claim_line WHERE id = ?",
+                    (allocation["claim_line_id"],))
+            with self._tx() as c:
+                if existing is None:
+                    cur = c.execute(
+                        """INSERT INTO claim_line (entity_id, project_id,
+                               customer_po_id, period_id, status, amount_cents,
+                               detail, from_plan, created_by, created_ts)
+                           VALUES (?,?,?,?, 'forecast', ?,?,1,?,?)""",
+                        (project["entity_id"], project_id, po_id,
+                         allocation["period_id"], allocation["amount_cents"],
+                         detail, actor_id, now))
+                    c.execute(
+                        "UPDATE claim_allocation SET claim_line_id = ? WHERE id = ?",
+                        (cur.lastrowid, allocation["id"]))
+                    created += 1
+                elif existing["status"] in ("invoiced", "paid"):
+                    locked += 1
+                    continue
+                else:
+                    c.execute(
+                        """UPDATE claim_line
+                           SET amount_cents = ?, period_id = ?, detail = ?
+                           WHERE id = ?""",
+                        (allocation["amount_cents"], allocation["period_id"],
+                         detail, existing["id"]))
+                    updated += 1
+            if allocation["label"] not in touched:
+                touched.append(allocation["label"])
+        if created or updated:
+            with self._tx() as c:
+                c.execute(
+                    """INSERT INTO audit_log (ts, actor_user_id, action,
+                           target_type, target_id, detail)
+                       VALUES (?,?,'plan_generate','project',?,?)""",
+                    (now, actor_id, str(project_id),
+                     f"{created} created, {updated} updated: "
+                     f"{', '.join(touched)}"))
+        return {"created": created, "updated": updated, "locked": locked,
+                "months": touched}
+
+    def move_plan_allocations(self, claim_id, from_period, to_period, actor_id):
+        """Follow a plan-backed claim when it moves month.
+
+        Only the allocation that OWNS this claim moves. Moving every
+        allocation of the month took four other claims' worth with it --
+        `200 Victoria` has five Commissioning claims in Sep-26, and moving
+        one of them relocated the whole $88,500.
+
+        A locked allocation does not move: that month was invoiced, and its
+        claim cannot be moved either.
+        """
+        now = int(time.time())
+        with self._tx() as c:
+            cur = c.execute(
+                """UPDATE claim_allocation SET period_id = ?
+                   WHERE claim_line_id = ? AND locked_claim_id IS NULL""",
+                (to_period, claim_id))
+            moved = cur.rowcount
+            if moved:
+                c.execute(
+                    """INSERT INTO audit_log (ts, actor_user_id, action,
+                           target_type, target_id, detail)
+                       VALUES (?,?,'plan_follow','claim_line',?,?)""",
+                    (now, actor_id, str(claim_id),
+                     f"its allocation moved with it"))
+            return moved
+
+    def lock_plan_for_claim(self, claim_id, actor_id):
+        """Fix the allocations behind a claim once it has been invoiced.
+
+        Called when a plan-generated claim reaches `invoiced`. From then on
+        re-spreading an item cannot move the months already billed -- the
+        same boundary as the slippage rule, for the same reason.
+        """
+        now = int(time.time())
+        claim = self.query_one(
+            "SELECT project_id, period_id FROM claim_line WHERE id = ?",
+            (claim_id,))
+        if claim is None:
+            return 0
+        with self._tx() as c:
+            cur = c.execute(
+                """UPDATE claim_allocation SET locked_claim_id = ?
+                   WHERE claim_line_id = ? AND locked_claim_id IS NULL""",
+                (claim_id, claim_id))
+            n = cur.rowcount
+            if n:
+                c.execute(
+                    """INSERT INTO audit_log (ts, actor_user_id, action,
+                           target_type, target_id, detail)
+                       VALUES (?,?,'plan_lock','claim_line',?,?)""",
+                    (now, actor_id, str(claim_id),
+                     f"{n} allocation(s) fixed by invoicing"))
+            return n
+
+    def amend_invoiced_claim(self, claim_id, new_amount, reason, actor_id):
+        """Change a claim that has already been invoiced. Rare, and real.
+
+        The amendment records WHAT THE INVOICE SAID as well as what it says
+        now: reconciling to Xero later means matching against the figure
+        that was actually issued, not the one it was corrected to.
+        """
+        if not (reason or "").strip():
+            raise ValueError("a reason is required")
+        now = int(time.time())
+        with self._tx() as c:
+            claim = c.execute(
+                "SELECT * FROM claim_line WHERE id = ?", (claim_id,)).fetchone()
+            if claim is None:
+                return None
+            if claim["status"] not in ("invoiced", "paid"):
+                raise ValueError("this claim has not been invoiced; edit it")
+            if claim["amount_cents"] == new_amount:
+                return {"changed": False, "amount_cents": new_amount}
+            c.execute(
+                """INSERT INTO claim_amendment (claim_line_id, invoice_number,
+                       invoiced_cents, amended_cents, reason, amended_by,
+                       amended_ts)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (claim_id, claim["invoice_number"], claim["amount_cents"],
+                 new_amount, reason.strip(), actor_id, now))
+            c.execute("UPDATE claim_line SET amount_cents = ? WHERE id = ?",
+                      (new_amount, claim_id))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'claim_amend','claim_line',?,?)""",
+                (now, actor_id, str(claim_id),
+                 f"invoice {claim['invoice_number'] or '(none)'} said "
+                 f"{money.format(claim['amount_cents'])}, amended to "
+                 f"{money.format(new_amount)}: {reason.strip()}"))
+            return {"changed": True, "invoiced_cents": claim["amount_cents"],
+                    "amount_cents": new_amount,
+                    "invoice_number": claim["invoice_number"]}
+
+    def set_claim_tasks(self, pairs, actor_id):
+        """Fill in the workbook's line item on claims that arrived without
+        one, because the importer mapped `Phase` and not `Task`.
+
+        Audited as one entry rather than 106: it is a single correction to a
+        single mistake, and a hundred rows in the log would bury the
+        interesting entries either side of it.
+        """
+        now = int(time.time())
+        if not pairs:
+            return 0
+        with self._tx() as c:
+            for claim_id, task in pairs:
+                c.execute(
+                    "UPDATE claim_line SET task = ? WHERE id = ? AND task IS NULL",
+                    (task, claim_id))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'claim_task_backfill','claim_line',?,?)""",
+                (now, actor_id, "",
+                 f"{len(pairs)} claim(s) given the workbook's task, which "
+                 "the importer had folded into detail"))
+        return len(pairs)
+
+    def adopt_claims_into_plan(self, project_id, actor_id, rebuild=False):
+        """Build the plan from the claims that already exist.
+
+        Every project imported from the workbook arrived with its forecast
+        already typed, and a plan panel that says `no plan yet` beside
+        thirteen forecast claims is lying by omission. The claims carry the
+        PHASE they came from, so the phases become items and the claims
+        become allocations -- the plan describes what is already there
+        rather than asking for it to be entered twice.
+
+        Claims with no phase are gathered under one item named for the
+        project, because an unnamed item is still better than a plan that
+        pretends the money is not planned.
+
+        The item's VALUE is the sum of its claims, not a share of the
+        contract: what is planned is a fact, and whether it adds up to the
+        contract is the question the panel then answers.
+        """
+        now = int(time.time())
+        project = self.query_one(
+            "SELECT entity_id, name FROM project WHERE id = ?", (project_id,))
+        if project is None:
+            return {"items": 0, "allocations": 0, "skipped": 0}
+        existing = self.scalar(
+            "SELECT COUNT(*) FROM claim_item WHERE project_id = ?", (project_id,))
+        if existing and not rebuild:
+            return {"items": 0, "allocations": 0, "skipped": 0,
+                    "reason": "this project already has a plan"}
+        if existing:
+            # The plan is DERIVED from the claims, so rebuilding it loses
+            # nothing that cannot be rebuilt -- including the locks, which
+            # come from claim status either way. Anything typed by hand
+            # goes, which is why this is a deliberate action.
+            with self._tx() as c:
+                c.execute(
+                    """DELETE FROM claim_allocation WHERE claim_item_id IN
+                       (SELECT id FROM claim_item WHERE project_id = ?)""",
+                    (project_id,))
+                c.execute("DELETE FROM claim_item WHERE project_id = ?",
+                          (project_id,))
+                # Opening balances are immutable, and they are not part of
+                # any plan anyway -- touching them made the whole rebuild
+                # fail on every project that has one.
+                c.execute("UPDATE claim_line SET from_plan = 0 "
+                          "WHERE project_id = ? AND is_opening_balance = 0",
+                          (project_id,))
+        claims = self.query(
+            """SELECT id, period_id, amount_cents, percent_bp, phase, task,
+                      status, detail
+               FROM claim_line
+               WHERE project_id = ? AND is_opening_balance = 0
+                 AND period_id IS NOT NULL AND from_plan = 0
+               ORDER BY id""", (project_id,))
+        if not claims:
+            return {"items": 0, "allocations": 0, "skipped": 0}
+        skipped_zero = 0
+        groups = {}
+        for claim in claims:
+            if not claim["amount_cents"]:
+                # A zero row would become a zero item -- `Progress Claim #2`
+                # at $0.00 is a month nobody claimed, not a part of the
+                # contract.
+                skipped_zero += 1
+                continue
+            # The workbook's LINE ITEM is the task -- `Client Training`,
+            # `SAT`, `Design - Stage 2`. The phase groups them above. Using
+            # the phase made five tasks share one row, so four of them were
+            # invisible in the grid.
+            groups.setdefault(
+                self.plan_group_name(claim["task"] or claim["phase"],
+                                     project["name"]),
+                []).append(claim)
+        items, allocations, skipped = 0, 0, 0
+        for name, rows in groups.items():
+            item = self.create_claim_item({
+                "entity_id": project["entity_id"], "project_id": project_id,
+                "name": name,
+                "value_cents": sum(r["amount_cents"] for r in rows),
+                "note": "adopted from claims imported with the register",
+            }, actor_id)
+            items += 1
+            # ONE ALLOCATION PER CLAIM, and it owns that claim. Aggregating
+            # several claims of a month into one share left generation
+            # unable to say which claim it had produced: it updated one to
+            # the month's whole total and left the rest standing.
+            for row in rows:
+                with self._tx() as c:
+                    c.execute(
+                        """INSERT INTO claim_allocation (claim_item_id,
+                               period_id, percent_bp, amount_cents, note,
+                               claim_line_id, locked_claim_id, created_by,
+                               created_ts)
+                           VALUES (?,?,?,?,?,?,?,?,?)""",
+                        (item["id"], row["period_id"], row["percent_bp"] or 0,
+                         row["amount_cents"], row["task"], row["id"],
+                         # Already invoiced is fixed on adoption, not later:
+                         # it was history before the plan existed.
+                         row["id"] if row["status"] in ("invoiced", "paid")
+                         else None,
+                         actor_id, now))
+                    c.execute("UPDATE claim_line SET from_plan = 1 WHERE id = ?",
+                              (row["id"],))
+                allocations += 1
+        with self._tx() as c:
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'plan_adopt','project',?,?)""",
+                (now, actor_id, str(project_id),
+                 f"{items} item(s) and {allocations} allocation(s) built from "
+                 f"{len(claims)} existing claims"))
+        return {"items": items, "allocations": allocations,
+                "skipped": skipped + skipped_zero}
+
+    #: Phase values that are not phases. The workbook's `Phase` column is
+    #: used inconsistently -- of 147 forecast rows, 70 hold a claim NUMBER
+    #: (`Progress Claim #4`), 10 are blank, and `Monthly Claim` appears
+    #: twice over through a typo. Grouping on those would produce an item
+    #: per month rather than an item per part of the contract.
+    NOT_A_PHASE = re.compile(
+        r"^(progress claim|monthly claim|montly claim|claim|expected\b|tba)",
+        re.IGNORECASE)
+
+    A_MONTH = re.compile(r"^[A-Za-z]{3}[- ]?\d{2}$")
+
+    @classmethod
+    def plan_group_name(cls, phase, fallback):
+        """Which item a claim belongs to. Newlines collapse: some rows hold
+        a claim number and a phase in one cell."""
+        text = " ".join((phase or "").split())
+        if not text:
+            return fallback
+        if not cls.NOT_A_PHASE.match(text):
+            return text
+        # `Progress Claim #4 Deployment of the ISP` holds both: strip the
+        # number and keep what is left, which IS a phase. Only when nothing
+        # is left does the project name stand in.
+        stripped = cls.NOT_A_PHASE.sub("", text, count=1)
+        stripped = stripped.lstrip("#0123456789 -\u2013\u2014.:").strip()
+        # A month is not a phase either: `Expected Aug-26` says WHEN, and
+        # the allocation already carries that.
+        if not stripped or cls.A_MONTH.match(stripped):
+            return fallback
+        return stripped
+
+    def plan_health(self, project_id):
+        """The three questions the workbooks answer by hand."""
+        plan = self.query_one(
+            "SELECT * FROM v_project_claim_plan WHERE project_id = ?",
+            (project_id,))
+        items = self.query(
+            "SELECT * FROM v_claim_item_coverage WHERE project_id = ? "
+            "ORDER BY is_variation, sequence, claim_item_id", (project_id,))
+        return {
+            "contract_value_cents": plan["contract_value_cents"] if plan else 0,
+            "opening_balance_cents": plan["opening_balance_cents"] if plan else 0,
+            # What a plan can describe: the contract less what was billed
+            # before this platform's window opened.
+            "plannable_cents": plan["plannable_cents"] if plan else 0,
+            "item_value_cents": plan["item_value_cents"] if plan else 0,
+            "variation_value_cents": plan["variation_value_cents"] if plan else 0,
+            "unitemised_cents": plan["unitemised_cents"] if plan else 0,
+            "allocated_cents": plan["allocated_cents"] if plan else 0,
+            "items": [dict(i) for i in items],
+            "months": [dict(m) for m in self.query(
+                """SELECT m.*, pe.label, pe.month_start, pe.fy_label
+                   FROM v_planned_month m JOIN period pe ON pe.id = m.period_id
+                   WHERE m.project_id = ? ORDER BY pe.month_start""",
+                (project_id,))],
+        }
 
     # --------------------------------------------------------- schedules
     STEP_MONTHS = {"monthly": 1, "quarterly": 3, "annual": 12}

@@ -635,6 +635,32 @@ a.signin:hover { background: var(--s-2); text-decoration: none; }
 .tag.is-correction { color: var(--t-1); }
 .tag.is-unknown    { color: var(--t-2); }
 
+/* ------------------------------------------------------- claim plan */
+.plan-panel { margin-top: var(--u4); }
+/* Items down, months across: the shape of the workbook this replaces.
+ * Showing it any other way would mean learning a new one. */
+table.plan-grid { font-size: var(--fs-small); }
+table.plan-grid th { white-space: nowrap; }
+table.plan-grid tfoot th {
+  border-top: 1px solid var(--line-strong);
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+/* A cell you can set, reading as its value rather than as a control: a grid
+ * of buttons is a grid nobody can scan. */
+button.cell-button {
+  height: auto;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font-family: var(--font-data);
+  font-size: var(--fs-small);
+  font-variant-numeric: tabular-nums;
+}
+button.cell-button:hover { color: var(--accent); text-decoration: underline; }
+.locked-mark { color: var(--t-2); }
+
 /* ------------------------------------------ schedule period breakdown */
 tr.detail-row td { padding: var(--u3); background: var(--s-0); }
 .periods {

@@ -194,6 +194,25 @@ class TestFilesAreWhereTheyBelong(unittest.TestCase):
     it should not depend on someone reading a path table carefully.
     """
 
+    #: Files that legitimately live at the repo root.
+    ROOT_ALLOWED = {"dev.ps1", "Makefile", "Dockerfile", "check.py",
+                    ".dockerignore", ".gitattributes", ".gitignore",
+                    "pyrightconfig.json"}
+
+    def test_nothing_stray_at_the_repo_root(self):
+        """Loose files copied to the root instead of into `ops/` or
+        `tests/`. It happened with a flat download and robocopy: nine files
+        landed beside the folders they belonged in, the working tree looked
+        unchanged, and `test_*.py` at the root would have been collected as
+        well."""
+        strays = [
+            name for name in os.listdir(ROOT)
+            if os.path.isfile(os.path.join(ROOT, name))
+            and name not in self.ROOT_ALLOWED
+            and not name.endswith(".md")]
+        self.assertEqual(sorted(strays), [],
+                         "these belong in ops/, ops/static/, tools/ or tests/")
+
     def test_no_test_files_outside_the_tests_directory(self):
         strays = []
         for folder in ("ops", "tools"):

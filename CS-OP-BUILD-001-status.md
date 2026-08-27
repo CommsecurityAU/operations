@@ -320,6 +320,16 @@ string arrives in Excel as text that will not sum.
   request, so the server is never stale with respect to it, and that
   correct reasoning answered the wrong question.
 
+**A whole class of error the suite could not see**
+
+- `datatable.js` used a module constant that was never declared: one edit
+  added it, a later edit to the same region removed it. `ReferenceError` on
+  every page, the register would not render — and **696 tests passed**. The
+  Python suite never executes the JavaScript and the Alpine image has no
+  runtime to execute it with. There is now a static scan for CAPS constants
+  used but not declared or imported, with a mutation test, because a scan
+  that matches nothing passes silently.
+
 **Checks that were wrong about themselves**
 
 - A guardrail nobody has tried to break is a guarantee nobody has checked.
@@ -398,28 +408,94 @@ METHOD /path` message so a stale server stops looking like a bad id.
 
 ---
 
+## What changed 27 August — the claim plan
+
+**The gap that mattered.** A claim line was the atom and there was no way to
+make one: every claim in the platform came from the importer, so a project
+created here could not have a dollar of its invoicing planned. The
+progress-claim workbooks did that work, and this is the layer that replaces
+them (ADR-37).
+
+    A contract splits into ITEMS with values.
+    Each item is spread across months by PERCENTAGE.
+    A month's claim is the SUM of that month's contributions.
+
+`720 Bourke St` reproduces to the cent — three phases, nine allocations,
+seven months totalling $198,610.00, and `Jul-26` producing nothing because
+nothing is allocated there.
+
+**Adoption, not re-entry.** Every project imported from the workbook arrived
+with its forecast already typed, and a panel saying `no plan yet` beside
+thirteen forecast claims is lying by omission. Adopt builds the plan from
+what is there.
+
+---
+
+## The day's real lesson
+
+**Four separate bugs, all from one assumption I made and the register
+disproves.** I decided a project has at most one claim per month.
+`200 Victoria - IBP` has five in Sep-26, and two in Aug-26 sharing
+`Inv No. 6072/5` — which is the answer: a claim line is one CONTRIBUTION and
+an invoice groups them (ADR-38).
+
+What that assumption cost, in order of discovery:
+
+1. **Generate doubled the money.** Adoption did not mark the claims it built
+   the plan from, so generation created a second set. $30,000 of forecast
+   became $60,000, silently.
+2. **Generate inflated a month.** Five claims, one updated to the month's
+   whole total, four left standing: $88,500 became $159,300.
+3. **Moving one claim moved the whole month**, and moving it back was
+   refused as `occupied` — so the plan silently stayed put while the claim
+   returned.
+4. **Rebuild threw on every project with an opening balance**, because it
+   cleared `from_plan` across the project and those rows are immutable. The
+   UI reported `internal error` and the plan quietly stayed as it was.
+
+**None of the four was caught by a test.** Every one was found by the Ops
+Manager using the screens on real data, and every one was invisible to a
+suite that asserted the model as designed.
+
+**And a fifth, upstream of all of them:** the claims importer mapped the
+workbook's `Phase` column and never its `Task`. `Task` is the LINE ITEM —
+`Client Training`, `SAT`, `Design - Stage 2` — so grouping had nothing to
+work with and five tasks collapsed into the phase above them. Fixed at the
+importer, with `tools/backfill_task.py` for the 106 claims already loaded.
+
+---
+
 ## Resume point
 
-**STP-2 is built.** Schema, importers, the month view, retention, schedules,
-customer orders and forecasting are all in and reconciling. What remains is
-not more building:
+**STP-2 is built, including the claim plan.** What remains is not building:
 
-1. **DEPLOY.** The runbook is written (CS-OP-RUN-002) and the case has
-   strengthened every day. The platform holds 204 claims, the FY27 forward
-   position, retention terms on seven projects, PO records and
-   opening-balance corrections — **all on one laptop, with no off-box
-   backup.** The deferral note said the deadline was not the VM but the
-   moment real data arrived. That was three days ago.
-2. **Nine reconciliation findings**, from the remaining-versus-forecast
-   check. `88 Robertson St - QLD` at $80,000 over-forecast is the one to
-   look at first.
-3. **Agree a job-number block with iTrade**, then
-   `tools/job_number_range.py`. Until then allocation refuses, which is
-   correct (ADR-29), and four `TBA` rows sit on the worklist.
-4. **Register the OIDC client** — the one deployment prerequisite that does
-   not need the VM.
+1. **DEPLOY.** Waiting on infrastructure, and sequenced rather than
+   deferred. The platform holds 204 claims, the FY27 forward position,
+   retention on seven projects, PO records with revision history, and now
+   claim plans — none of it backed up off the laptop. The runbook is
+   written (CS-OP-RUN-002) and its four **[SITE]** gaps need answers when
+   the VM appears.
+2. **OIDC client registration** — the one prerequisite that does not need
+   the VM, and it retires the dev cookie.
+3. **Rebuild the remaining plans** — `tools/rebuild_plans.py --apply` after
+   any re-import or a `backfill_task` run.
+4. **`627 Chapel - ICN Maintenance`** has a $20,288.88 Jul-26 claim with no
+   matching workbook row. The other 97 unmatched are $0.00 rows, so that one
+   stands out. `drift_check.py` will not find it: it compares the register
+   only.
+5. **Agree a job-number block with iTrade**, then
+   `tools/job_number_range.py`.
 
-**Then STP-3**: supplier costs, migration `008`.
+**Then STP-3**: supplier costs, migration `011`. AUD and USD only; the rate
+is agreed with the supplier and fixed at quote or PO, so §4's dated
+`fx_rate` table has nothing to hold — the rate belongs on the supplier PO.
+Waiting on the supplier list before the schema is designed.
+
+**Two UI debts worth clearing early**, both of which cost rounds today: the
+project panel closes on every action, so the outcome of Rebuild, Generate
+and Adopt is never visible where it was pressed; and a 500 reads as
+`internal error` in the browser while the traceback sits in the server
+terminal, which was the answer twice while I asked for something else.
 
 ---
 
@@ -429,10 +505,9 @@ not more building:
 cd C:\Dev\operations
 Get-ChildItem -Recurse -File | Unblock-File    # after any copy
 .\dev.ps1                 # serve on 5173
-.\dev.ps1 -Stale          # code AND assets, compared against the delivery
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 645
-py tools\drift_check.py --csv "<register>.csv" --db data\ops.db
+.\dev.ps1 -Stale          # code AND assets, against the delivered values
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 708
 ```
 
-Fingerprints at end of day: code `3010691b3e64`, assets `77eccf48a46b`.
-Migrations applied: `001` through `007`.
+Fingerprints: code `c0c678c4bd92`, assets `d55a18ae44ce`.
+Migrations applied: `001` through `010`.

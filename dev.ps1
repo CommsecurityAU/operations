@@ -71,9 +71,12 @@ if ($Stale) {
     Write-Host "  on disk  $disk"
     Write-Host "  assets   $assets"
     if ($running -eq $disk) {
-        Write-Host "  server is current. Compare `assets` against the value" -ForegroundColor Green
-        Write-Host "  quoted with the last batch: static files are read per" -ForegroundColor Green
-        Write-Host "  request, so a stale one shows here and nowhere else." -ForegroundColor Green
+        # No backticks in a double-quoted string: PowerShell reads them as
+        # escapes, and the word after one silently loses its first letter.
+        Write-Host "  server is current." -ForegroundColor Green
+        Write-Host "  Compare both hashes against the values quoted with the" -ForegroundColor Green
+        Write-Host "  last batch. Static files are read per request, so a" -ForegroundColor Green
+        Write-Host "  stale one shows in 'assets' and nowhere else." -ForegroundColor Green
         Write-Host ""
         exit 0
     }

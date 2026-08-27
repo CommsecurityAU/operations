@@ -43,13 +43,14 @@ function figure(label, kind) {
 
 export async function render(root) {
   mount(root, stateMessage("Loading projects", null, false));
-  let payload, reference, me, renewals;
+  let payload, reference, me, renewals, periods;
   try {
-    [payload, reference, me, renewals] = await Promise.all([
+    [payload, reference, me, renewals, periods] = await Promise.all([
       api("GET", "/api/projects"),
       api("GET", "/api/reference"),
       api("GET", "/api/me"),
       api("GET", "/api/renewals"),
+      api("GET", "/api/periods"),
     ]);
   } catch (err) {
     // The server's own wording, plus what to do about it.
@@ -79,11 +80,15 @@ export async function render(root) {
     });
   };
   const openPanel = async (row) => {
-    const { poPanel } = await import("./popanel.js");
-    return poPanel(row, canWrite, (message) => {
-      pending = message;
-      render(root);
-    }, canWrite ? () => openForm(row) : null, all, canDelete);
+    const announce = (message) => { pending = message; render(root); };
+    // Two things a project IS: what has been ordered, and how the contract
+    // becomes a forecast. Both load on demand.
+    const [{ poPanel }, { planPanel }] = await Promise.all([
+      import("./popanel.js"), import("./planpanel.js")]);
+    return h("div", null,
+      await poPanel(row, canWrite, announce,
+                    canWrite ? () => openForm(row) : null, all, canDelete),
+      await planPanel(row, canWrite, announce, periods.periods));
   };
 
   const notice = h("div", { class: "notice", hidden: true });
@@ -192,5 +197,6 @@ export async function render(root) {
       // detail is the natural place to decide you want to change something.
       detail: openPanel,
       exportName: "project-register",
+      stateKey: "projects",
     })));
 }

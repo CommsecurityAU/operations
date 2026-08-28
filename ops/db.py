@@ -317,6 +317,274 @@ class Db:
                    VALUES (?,?,'role_grant','user',?,?)""",
                 (now, actor_id, str(user_id), f"entity={entity_id} role={role}"))
 
+    # ---------------------------------------------------------- suppliers
+    SUPPLIER_FIELDS = ("name", "itrade_ref", "xero_ref", "abn",
+                       "default_currency", "payment_terms_days",
+                       "contact_name", "phone", "email", "address", "note",
+                       "is_active")
+
+    def create_suppliers(self, rows, actor_id):
+        now = int(time.time())
+        if not rows:
+            return 0
+        with self._tx() as c:
+            for row in rows:
+                c.execute(
+                    """INSERT INTO supplier
+                       (entity_id, name, itrade_ref, xero_ref, abn,
+                        default_currency, payment_terms_days, contact_name,
+                        phone, email, address, note, created_by, created_ts)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (row.get("entity_id", 1), row["name"],
+                     row.get("itrade_ref"), row.get("xero_ref"),
+                     row.get("abn"), row.get("default_currency", "AUD"),
+                     row.get("payment_terms_days"), row.get("contact_name"),
+                     row.get("phone"), row.get("email"), row.get("address"),
+                     row.get("note"), actor_id, now))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'supplier_import','supplier',?,?)""",
+                (now, actor_id, "", f"{len(rows)} supplier(s) added"))
+        return len(rows)
+
+    def update_suppliers(self, changes, actor_id):
+        """`changes` is [(supplier_id, {field: value})]. Each field change is
+        kept: a currency or an ABN that turns out to have been wrong changes
+        what was withheld and what was paid."""
+        now = int(time.time())
+        if not changes:
+            return 0
+        with self._tx() as c:
+            for supplier_id, fields in changes:
+                before = c.execute("SELECT * FROM supplier WHERE id = ?",
+                                   (supplier_id,)).fetchone()
+                if before is None:
+                    continue
+                for key, value in fields.items():
+                    if key not in self.SUPPLIER_FIELDS or before[key] == value:
+                        continue
+                    c.execute(f"UPDATE supplier SET {key} = ? WHERE id = ?",
+                              (value, supplier_id))
+                    c.execute(
+                        """INSERT INTO supplier_revision (supplier_id, field,
+                               old_value, new_value, reason, changed_by,
+                               changed_ts)
+                           VALUES (?,?,?,?,?,?,?)""",
+                        (supplier_id, key,
+                         None if before[key] is None else str(before[key]),
+                         None if value is None else str(value),
+                         "iTrade import", actor_id, now))
+        return len(changes)
+
+    # -------------------------------------------------------- procurement
+    #: `project_id` is here because a line entered against the wrong job is
+    #: the commonest slip, and it moves the cost onto another project's
+    #: margin. Leaving it out meant the update was accepted and ignored,
+    #: which is worse than refusing it.
+    LINE_MUTABLE = ("project_id", "supplier_id", "supplier_po_id",
+                    "supplier_quote_id", "currency", "stated_state",
+                    "supplier_invoice_id", "period_id", "item", "description",
+                    "quantity", "currency", "unit_cost_cents", "total_cents",
+                    "requested_date", "ordered_date", "invoiced_date",
+                    "delivered_date", "paid_date", "cancelled_date",
+                    "cancel_reason", "note")
+
+    @staticmethod
+    def extend(unit_cents, quantity, fx_rate_bp=None):
+        """A line's total, converted ONCE at the extended amount.
+
+        The register does it this way and it is right: `$33.00 x 7` at
+        1.388561 is $320.76, while rounding the unit to $45.82 first and
+        multiplying gives $320.74. Five lines in the register differ by a
+        cent or two for exactly that reason, and converting last removes the
+        difference rather than reconciling it.
+        """
+        gross = unit_cents * max(1, int(quantity))
+        if not fx_rate_bp:
+            return gross
+        return money.divide(gross * fx_rate_bp, 10_000_000)
+
+    def create_procurement_line(self, fields, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            cur = c.execute(
+                """INSERT INTO procurement_line
+                   (entity_id, project_id, supplier_id, supplier_po_id,
+                    supplier_quote_id, supplier_invoice_id, period_id,
+                    item, description, quantity, currency, unit_cost_cents,
+                    total_cents, requested_date, ordered_date, invoiced_date,
+                    delivered_date, paid_date, stated_state, note,
+                    created_by, created_ts)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (fields.get("entity_id", 1), fields["project_id"],
+                 fields.get("supplier_id"), fields.get("supplier_po_id"),
+                 fields.get("supplier_quote_id"),
+                 fields.get("supplier_invoice_id"), fields.get("period_id"),
+                 fields.get("item"), fields.get("description"),
+                 fields.get("quantity", 1), fields.get("currency", "AUD"),
+                 fields.get("unit_cost_cents", 0),
+                 fields.get("total_cents", 0), fields.get("requested_date"),
+                 fields.get("ordered_date"), fields.get("invoiced_date"),
+                 fields.get("delivered_date"), fields.get("paid_date"),
+                 fields.get("stated_state"), fields.get("note"),
+                 actor_id, now))
+            line_id = cur.lastrowid
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'procurement_create','procurement_line',?,?)""",
+                (now, actor_id, str(line_id),
+                 f"{fields.get('item') or '(no item)'} "
+                 f"x{fields.get('quantity', 1)} "
+                 f"{money.format(fields.get('total_cents', 0))}"))
+            return dict(c.execute(
+                "SELECT * FROM procurement_line WHERE id = ?",
+                (line_id,)).fetchone())
+
+    def update_procurement_line(self, line_id, changes, actor_id, reason=None):
+        now = int(time.time())
+        with self._tx() as c:
+            before = c.execute("SELECT * FROM procurement_line WHERE id = ?",
+                               (line_id,)).fetchone()
+            if before is None:
+                return None
+            applied = []
+            for key in self.LINE_MUTABLE:
+                if key not in changes or before[key] == changes[key]:
+                    continue
+                c.execute(f"UPDATE procurement_line SET {key} = ? WHERE id = ?",
+                          (changes[key], line_id))
+                applied.append(key)
+                c.execute(
+                    """INSERT INTO procurement_line_revision (line_id, field,
+                           old_value, new_value, reason, changed_by, changed_ts)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (line_id, key,
+                     None if before[key] is None else str(before[key]),
+                     None if changes[key] is None else str(changes[key]),
+                     reason, actor_id, now))
+            return {"line": dict(c.execute(
+                "SELECT * FROM v_procurement_line WHERE id = ?",
+                (line_id,)).fetchone()), "changed": sorted(applied)}
+
+    def resolve_supplier(self, entity_id, name):
+        """Exact, then case-insensitive, then a recorded alias. NEVER fuzzy:
+        it would get `Colterlec` right and `USR` wrong, and a wrong supplier
+        on an order puts spend against a company that never sold us
+        anything."""
+        text = (name or "").strip()
+        if not text:
+            return None
+        row = self.query_one(
+            """SELECT id FROM supplier
+               WHERE entity_id = ? AND name = ? COLLATE NOCASE""",
+            (entity_id, text))
+        if row:
+            return row["id"]
+        row = self.query_one(
+            """SELECT supplier_id AS id FROM supplier_alias
+               WHERE entity_id = ? AND alias = ? COLLATE NOCASE""",
+            (entity_id, text))
+        return row["id"] if row else None
+
+    def add_supplier_alias(self, entity_id, alias, supplier_id, actor_id,
+                           note=None):
+        now = int(time.time())
+        with self._tx() as c:
+            c.execute(
+                """INSERT OR IGNORE INTO supplier_alias
+                   (entity_id, alias, supplier_id, note, created_by, created_ts)
+                   VALUES (?,?,?,?,?,?)""",
+                (entity_id, alias.strip(), supplier_id, note, actor_id, now))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'supplier_alias','supplier',?,?)""",
+                (now, actor_id, str(supplier_id), f"{alias!r} resolves here"))
+        return True
+
+    def clear_procurement(self, actor_id):
+        """Undo an import. Deliberate and total: a partial import leaves
+        quotes and orders with no lines, which reads as real procurement
+        that nobody ordered."""
+        now = int(time.time())
+        with self._tx() as c:
+            for table in ("procurement_line_revision", "procurement_line",
+                          "supplier_po", "supplier_invoice", "supplier_quote"):
+                c.execute(f"DELETE FROM {table}")
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'procurement_reset','procurement_line',?,?)""",
+                (now, actor_id, "", "every procurement row cleared"))
+        return True
+
+    def create_supplier_quote(self, fields, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            cur = c.execute(
+                """INSERT INTO supplier_quote
+                   (entity_id, supplier_id, quote_ref, quote_date, currency,
+                    fx_rate_bp, email_subject, email_sent_date, note,
+                    created_by, created_ts)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (fields.get("entity_id", 1), fields["supplier_id"],
+                 fields.get("quote_ref"), fields.get("quote_date"),
+                 fields.get("currency", "AUD"), fields.get("fx_rate_bp"),
+                 fields.get("email_subject"), fields.get("email_sent_date"),
+                 fields.get("note"), actor_id, now))
+            return dict(c.execute("SELECT * FROM supplier_quote WHERE id = ?",
+                                  (cur.lastrowid,)).fetchone())
+
+    def create_supplier_po(self, fields, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            cur = c.execute(
+                """INSERT INTO supplier_po
+                   (entity_id, project_id, supplier_id, supplier_quote_id,
+                    po_number, po_date, approved_by, approved_date, note,
+                    created_by, created_ts)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (fields.get("entity_id", 1), fields["project_id"],
+                 fields["supplier_id"], fields.get("supplier_quote_id"),
+                 fields.get("po_number"), fields.get("po_date"),
+                 fields.get("approved_by"), fields.get("approved_date"),
+                 fields.get("note"), actor_id, now))
+            po_id = cur.lastrowid
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'supplier_po_create','supplier_po',?,?)""",
+                (now, actor_id, str(po_id),
+                 f"{fields.get('po_number') or '(no number)'}"))
+            return dict(c.execute("SELECT * FROM supplier_po WHERE id = ?",
+                                  (po_id,)).fetchone())
+
+    def find_or_create_supplier_invoice(self, entity_id, supplier_id,
+                                        invoice_ref, actor_id, **fields):
+        """One invoice regularly covers several orders, so it is looked up
+        by reference rather than created per line."""
+        now = int(time.time())
+        found = self.query_one(
+            """SELECT * FROM supplier_invoice
+               WHERE entity_id = ? AND supplier_id = ? AND invoice_ref = ?""",
+            (entity_id, supplier_id, invoice_ref))
+        if found:
+            return dict(found), False
+        with self._tx() as c:
+            cur = c.execute(
+                """INSERT INTO supplier_invoice
+                   (entity_id, supplier_id, invoice_ref, invoice_date,
+                    due_date, note, created_by, created_ts)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (entity_id, supplier_id, invoice_ref,
+                 fields.get("invoice_date"), fields.get("due_date"),
+                 fields.get("note"), actor_id, now))
+            return dict(c.execute(
+                "SELECT * FROM supplier_invoice WHERE id = ?",
+                (cur.lastrowid,)).fetchone()), True
+
     def revoke_role(self, user_id, entity_id, role, actor_id):
         now = int(time.time())
         with self._tx() as c:

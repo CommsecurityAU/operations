@@ -25,6 +25,7 @@ import time
 
 from ops import auth, backup, config as config_mod
 from ops.modules import claims as claims_module
+from ops.modules import procurement as procurement_module
 from ops.modules import projects as projects_module
 from ops.modules import access as access_module
 from ops.modules import claimplan as claimplan_module
@@ -47,7 +48,8 @@ MIME = {
     ".png": "image/png",
 }
 MODULES = [projects_module, worklist_module, claims_module,
-           schedules_module, claimplan_module, access_module]   # §6. Explicit, in order.
+           schedules_module, claimplan_module, access_module,
+           procurement_module]   # §6. Explicit, in order.
 CERT_WARN_DAYS = 30
 
 

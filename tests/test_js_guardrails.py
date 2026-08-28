@@ -482,7 +482,7 @@ class TestBudgets(unittest.TestCase):
 
     SHELL = "main.js"
     SCREENS = ("projects.js", "claims.js", "worklist.js", "schedules.js",
-               "access.js")
+               "access.js", "procurement.js")
 
     def size(self, names):
         return sum(os.path.getsize(os.path.join(STATIC, n)) for n in names)

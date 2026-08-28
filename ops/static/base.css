@@ -634,6 +634,26 @@ a.signin:hover { background: var(--s-2); text-decoration: none; }
 .tag.is-variation  { color: var(--accent); }
 .tag.is-correction { color: var(--t-1); }
 .tag.is-unknown    { color: var(--t-2); }
+/* A select that IS the value it shows: readable as data at a glance, and
+ * editable without first looking like a form. Same idea as the month cell
+ * on the invoicing grid. */
+/* A select with a way to add to it, because the thing you need is often
+ * not in the list yet. */
+.with-add { display: flex; gap: var(--u2); align-items: center; }
+.with-add select { flex: 1 1 auto; }
+
+select.cell-select {
+  font-size: var(--fs-small);
+  height: calc(var(--h-control) - 6px);
+  padding: 0 var(--u);
+  background: transparent;
+  border-color: transparent;
+  color: inherit;
+  max-width: 22ch;
+}
+select.cell-select:hover,
+select.cell-select:focus { border-color: var(--accent-dim); color: var(--accent); }
+
 /* A checkbox is the one control browsers still paint in their own colour.
  * Left alone it puts a saturated blue on a screen where nothing else is,
  * and blue means nothing in this palette. */

@@ -1,6 +1,6 @@
 # CS-OP-STP-001 — Delivery plan
 
-- **As at:** 27 August 2026
+- **As at:** 28 August 2026
 - **Status:** Live. **Supersedes CS-OP-ARCH-001 §11 in full.**
 - **Depends on:** CS-OP-ARCH-002 (stack, budgets, ADR-08…26)
 - **Companions:** CS-OP-BUILD-001 (build status), CS-OP-RUN-001 (restore runbook)
@@ -48,9 +48,12 @@ Stated explicitly so nobody has to infer it again.
 | `008` | STP-2 | claim_item, claim_allocation, claim_amendment (ADR-37) — **applied** |
 | `009` | STP-2 | a plan describes what is left to claim (ADR-39) — **applied** |
 | `010` | STP-2 | an allocation owns its claim (ADR-38) — **applied** |
-| `011` | STP-3 | supplier, supplier_po, supplier_po_line, supplier_invoice, fx_rate, project_expense_estimate |
-| `012` | STP-4 | office_expense_line, payroll_rate, tax_rate |
-| `013` | STP-5 | rollup views only |
+| `011` | STP-3 | supplier — **applied** |
+| `012` | STP-3 | supplier_quote, supplier_po, procurement_line, supplier_invoice (ADR-40) — **applied** |
+| `013` | STP-3 | supplier_alias: names resolved, never guessed (ADR-41) — **applied** |
+| `014`, `015` | STP-3 | a state with nothing dated behind it — **applied** |
+| `016` | STP-4 | office_expense_line, payroll_rate, tax_rate |
+| `017` | STP-5 | rollup views only |
 
 **STP-0 and STP-1 share migration `001`.** ARCH-001 assigned the project
 register to STP-1's migration, but the register is what STP-0's exit
@@ -222,36 +225,33 @@ eliminating the copy-forward. History does not move when a PO is corrected.
 
 ## STP-3 — Procurement & project expenses
 
-**Situation.** The AUD/USD rate sits loose in a sheet header (0.70732) and
-is applied globally, so historical USD costs silently restate whenever
-someone updates it. Project Expenses is a project × month matrix maintained
-by hand, mixing procurement roll-up with forward estimates in the same
-cells. Supplier quotes and PO paperwork live in email.
+**Situation.** Procurement is a Google Sheet a project engineer fills in and
+the accounts team works from. A line is entered, emailed for approval, a PO
+is raised, the supplier invoices, delivers and is paid — in whatever order.
+Nothing connects it to what a project is worth.
 
-**Target.** The platform issues supplier PO numbers. **FX is frozen at PO
-issue, so history does not move.** Expenses stored long, pivoted at read,
-with roll-up and estimate clearly separated.
+**Target.** The register in the platform, on the same monthly axis as
+invoicing, so committed cost meets claimed revenue.
 
-**Proposal.**
+**Status: BUILT, 28 August 2026.** 92 suppliers from iTrade; 58 register
+lines, 22 quotes, 28 orders and 14 invoices imported, $160,501.20 committed,
+every state matching the sheet. The screen edits everything and creates
+quotes and orders from the row that needs them.
 
-- Migration `011`: `supplier`, `supplier_po`, `supplier_po_line`,
-  `supplier_invoice`, `fx_rate`, `project_expense_estimate`
-- Per-entity sequential supplier PO numbering via `UPDATE … RETURNING`
-  inside the issuing transaction
-- `fx_rate_used` captured per line at issue — the same dated-row discipline
-  as ADR-20, for the same reason
-- Document attachment (content-addressed, `owner_type`/`owner_id`) for
-  quotes, PO PDFs and delivery paperwork
-- Estimate entry by project × period, distinguishable from actual roll-up
+**What the model turned on** (ADR-40): payment and delivery are INDEPENDENT
+facts, so they are dates and the state is derived; a quote may cover several
+projects and carries the FX rate agreed with the supplier; one invoice
+regularly covers several orders, so it links per line; and the foreign
+amount is the fact, converted once at the extended total.
 
-**Exit criteria.**
+**No `fx_rate` table.** AUD and USD only, and the rate is agreed with the
+supplier and fixed at quote — so it belongs on `supplier_quote` beside the
+USD amount. The USD figure and the rate are the facts; the AUD is
+reproducible from them forever.
 
-- A supplier PO raised end to end in the platform, quote attached, sent to a
-  real supplier
-- A change to today's FX rate demonstrably does not move last month's costs
-- **Procurement Register and Project Expenses tabs read-only**
-
----
+**Still open.** Every supplier is missing an ABN, and one without is
+withheld at 47%. `36 Wellington St - ICN Maintenance (JN-6963)` is in the
+register and not in the platform.
 
 ## STP-4 — Office expenses
 
@@ -266,7 +266,7 @@ dated rate table. One wage change propagates automatically.
 
 **Proposal.**
 
-- Migration `012`: `office_expense_line`, `payroll_rate`, `tax_rate`
+- Migration `016`: `office_expense_line`, `payroll_rate`, `tax_rate`
 - Rates are **dated rows per entity, never configuration** (ADR-20). Every
   computed figure records the `rate_bp` it used, so changing a rate cannot
   restate a prior year
@@ -306,7 +306,7 @@ and no cell can be `#REF!` or `#N/A` by construction.
 
 **Proposal.**
 
-- Migration `013`: `v_project_financials`, `v_monthly_pl`, `v_dashboard`,
+- Migration `017`: `v_project_financials`, `v_monthly_pl`, `v_dashboard`,
   `v_by_type`, `v_by_client` — views only, no new fact tables
 - Operations Summary, monthly P&L, actual vs plan vs forecast, by type, by
   client, by project

@@ -1,6 +1,6 @@
 # MANIFEST — where every file goes
 
-**As at:** 27 August 2026 · **708 tests** · pyright --strict clean
+**As at:** 28 August 2026 · **809 tests** · pyright --strict clean
 
 The `repo/` folder mirrors `C:\Dev\operations` exactly. Copy it over the top
 and the paths land correctly — no guessing which `main` is which.
@@ -52,14 +52,21 @@ C:\Dev\operations\
 │   │   ├── 007_contract_value.sql     contract on the project (ADR-34)
 │   │   ├── 008_claim_plan.sql         items and allocations (ADR-37)
 │   │   ├── 009_plannable.sql          plan what is left to claim (ADR-39)
-│   │   └── 010_allocation_claim.sql   an allocation owns its claim (ADR-38)
+│   │   ├── 010_allocation_claim.sql   an allocation owns its claim (ADR-38)
+│   │   ├── 011_suppliers.sql          who we buy from
+│   │   ├── 012_procurement.sql        quotes, orders, lines, invoices (ADR-40)
+│   │   ├── 013_supplier_alias.sql     resolved names, never guessed (ADR-41)
+│   │   ├── 014_register_state.sql     what the sheet said
+│   │   └── 015_stated_state.sql       a state with no date behind it
 │   ├── modules/                       §6 FEATURE MODULES
 │   │   ├── __init__.py
 │   │   ├── projects.py                register CRUD, validation, routes
 │   │   ├── worklist.py                job-code resolution
 │   │   ├── claims.py                  invoicing lifecycle, EOM axis
 │   │   ├── schedules.py               recurring claims, renewals
-│   │   └── claimplan.py               items, allocations, generation
+│   │   ├── claimplan.py               items, allocations, generation
+│   │   ├── access.py                  roles by entity
+│   │   └── procurement.py             the buying register
 │   └── static/                        THE BROWSER CODE
 │       ├── index.html                 shell
 │       ├── tokens.css                 the ONLY colour/type/spacing literals
@@ -103,6 +110,10 @@ C:\Dev\operations\
     ├── test_customer_pos.py           add, edit, revise, move, delete
     ├── test_claim_plan.py             items, allocations, generation
     ├── test_backfill_task.py          matching claims to workbook rows
+    ├── test_access.py                 roles, and the last admin
+    ├── test_procurement.py            dates, states, FX at the extended total
+    ├── test_procurement_api.py        editing everything over HTTP
+    ├── test_import_suppliers.py       re-runnable, never destructive
     ├── test_restore.py                pre-flight and restore ordering
     └── test_secrets.py                store, CLI, no-fallback
 ```
@@ -119,11 +130,11 @@ secrets, TLS. `.gitignore` covers it.
 
 ```powershell
 cd C:\Dev\operations
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 708 OK
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 809 OK
 .\dev.ps1 -Stale                                             # running == disk?
 ```
 
-If the count is below 708, a test file did not land. If `-Stale` says STALE,
+If the count is below 809, a test file did not land. If `-Stale` says STALE,
 restart the server — Python loads a module once, so a running process can be
 several edits behind the working tree while every test passes.
 

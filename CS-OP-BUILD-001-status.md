@@ -320,6 +320,14 @@ string arrives in Excel as text that will not sum.
   request, so the server is never stale with respect to it, and that
   correct reasoning answered the wrong question.
 
+**Names that describe the source rather than the thing**
+
+- `register_state` held what the procurement sheet said. When the grid
+  gained a dropdown, the same column held what a person said — the same
+  fact, a state with nothing dated behind it. Renamed to `stated_state`
+  immediately, because **this is exactly how `purchase_order_cents` came to
+  mean contract value** (ADR-34) and cost a day.
+
 **A whole class of error the suite could not see**
 
 - `datatable.js` used a module constant that was never declared: one edit
@@ -465,37 +473,62 @@ importer, with `tools/backfill_task.py` for the 106 claims already loaded.
 
 ---
 
+## What changed 28 August
+
+**OIDC works end to end.** Client registered Internal in the Workspace org,
+both redirect URIs, signed in as a real account. The dev cookie is a
+fallback rather than the way in, and roles are granted from an **Access**
+screen instead of a Python script — the last admin on an entity cannot be
+removed, including yourself, because a system nobody can administer needs a
+database client to recover.
+
+**STP-3 is built.** 92 suppliers imported from iTrade, and the procurement
+register — 58 lines, 22 quotes, 28 orders, 14 invoices, **$160,501.20
+committed** — with every state matching the sheet exactly.
+
+The screen does the two things the workbook cannot: recording WHEN
+something was delivered or paid rather than what state somebody last typed,
+and showing committed cost against the project it belongs to. EOM and state
+are dropdowns in the grid; a quote or an order can be created from the row
+that needs it, because the reason it does not exist is that nobody had
+reached that line yet.
+
+**Five register rows that looked wrong were right.** `$33.00 x 7` at
+1.388561 is $320.76 converting the extended total and $320.74 converting
+per unit. The sheet converts last, and so does `Db.extend`.
+
+---
+
 ## Resume point
 
-**STP-2 is built, including the claim plan.** What remains is not building:
+**STP-0 through STP-3 are built.** What remains is not building:
 
-1. **DEPLOY.** Waiting on infrastructure, and sequenced rather than
-   deferred. The platform holds 204 claims, the FY27 forward position,
-   retention on seven projects, PO records with revision history, and now
-   claim plans — none of it backed up off the laptop. The runbook is
-   written (CS-OP-RUN-002) and its four **[SITE]** gaps need answers when
-   the VM appears.
-2. **OIDC client registration** — the one prerequisite that does not need
-   the VM, and it retires the dev cookie.
-3. **Rebuild the remaining plans** — `tools/rebuild_plans.py --apply` after
-   any re-import or a `backfill_task` run.
-4. **`627 Chapel - ICN Maintenance`** has a $20,288.88 Jul-26 claim with no
-   matching workbook row. The other 97 unmatched are $0.00 rows, so that one
-   stands out. `drift_check.py` will not find it: it compares the register
-   only.
+1. **DEPLOY.** Waiting on infrastructure, sequenced rather than deferred.
+   The platform now holds 204 claims, the FY27 forward position, retention
+   on seven projects, PO records, claim plans, 92 suppliers and 58
+   procurement lines — none of it backed up off the laptop. CS-OP-RUN-002
+   has four **[SITE]** gaps needing answers when the VM appears.
+2. **`36 Wellington St - ICN Maintenance (JN-6963)`** is in the procurement
+   register and not in the platform. Its rows are skipped until it exists;
+   creating it needs a job-code decision (ADR-28).
+3. **`Kenrone` defaults to USD** on my inference from its register rows.
+   Worth confirming: it decides how its lines are costed.
+4. **ABNs.** Every one of the 92 suppliers is missing one. A supplier
+   without an ABN is withheld at 47%, so this matters before payments run
+   through the platform rather than beside it.
 5. **Agree a job-number block with iTrade**, then
-   `tools/job_number_range.py`.
+   `tools/job_number_range.py`. Four `TBA` rows wait on it.
 
-**Then STP-3**: supplier costs, migration `011`. AUD and USD only; the rate
-is agreed with the supplier and fixed at quote or PO, so §4's dated
-`fx_rate` table has nothing to hold — the rate belongs on the supplier PO.
-Waiting on the supplier list before the schema is designed.
+**Then STP-4**: office expenses and payroll, migration `016`. Then STP-5,
+the dashboard that reads all of it — which is the first screen that shows a
+MARGIN, because contract, claims, retention and committed cost now all
+exist in one place.
 
-**Two UI debts worth clearing early**, both of which cost rounds today: the
+**UI debts worth clearing early**, each of which has cost a round trip: the
 project panel closes on every action, so the outcome of Rebuild, Generate
-and Adopt is never visible where it was pressed; and a 500 reads as
-`internal error` in the browser while the traceback sits in the server
-terminal, which was the answer twice while I asked for something else.
+and Adopt is never visible where it was pressed; a 500 reads as `internal
+error` in the browser while the traceback sits in the server terminal; and
+the register's `Invoiced prior` column now means all invoicing, not prior.
 
 ---
 
@@ -504,10 +537,10 @@ terminal, which was the answer twice while I asked for something else.
 ```powershell
 cd C:\Dev\operations
 Get-ChildItem -Recurse -File | Unblock-File    # after any copy
-.\dev.ps1                 # serve on 5173
+.\dev.ps1                 # serve on 5173, then sign in with Google
 .\dev.ps1 -Stale          # code AND assets, against the delivered values
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 708
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 809
 ```
 
-Fingerprints: code `c0c678c4bd92`, assets `d55a18ae44ce`.
-Migrations applied: `001` through `010`.
+Fingerprints: code `5f5986c48b2f`, assets `873ce61b8019`.
+Migrations applied: `001` through `015`.

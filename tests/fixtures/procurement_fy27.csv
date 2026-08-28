@@ -1,0 +1,111 @@
+,ALL Projects,,,,,AUD/USD,USD/AUD,,,,,,,,,USR-N510-H7-4,"$1,006.71",,,,
+,MSI Procurement Register - Other,,,,,0.72017,1.388561,,,,,,,,,,$59.22,,,,
+,Purpose: This document is to track and manage procurement of Labour / Software of the project,,,,,,,,,,,,,,,,,,,,
+,"Thursday, 24 April 2025",,,,,,,,,,,,,,,,,,,,
+,Procurement Register,,,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,
+ID,Project,Job No,Supplier,Item,Description,Other Info,Email Request Sent,Emai Subject,Date of Payment Due,Qty Req,Approved By,Delivery Remaining,PO Number,PO Date,EOM,USD,USD Total,Cost,Total Cost,Quote Ref,Invoice  Ref
+,720 Bourke - IBP,JN-5749,,MSI Cubi - RAVEN,"12th gen i5 10 core 12 thread CPU
+500GB NVME MSI SSD
+16GB Ram, 3-Yr Warranty",Cavern Imports,24-Mar-26,MSI Cubi - Gateways,31-Mar-2026,1,,Complete,PO-2225 5749,24-Mar-2026,May-26,,,$590.00,$590.00,11395,
+,200 Victoria - IBP,JN-6072,,MSI Cubi - RAVEN,"12th gen i5 10 core 12 thread CPU
+500GB NVME MSI SSD
+16GB Ram, 3-Yr Warranty",Cavern Imports,24-Mar-26,MSI Cubi - Gateways,31-Mar-2026,1,,Complete,PO-2226 6072,24-Mar-2026,May-26,,,$590.00,$590.00,11440,
+,11-19 Whitehall Rd - Assembe - EMS,JN-5830,,MSI Cubi - RAVEN,"12th gen i5 10 core 12 thread CPU
+500GB NVME MSI SSD
+16GB Ram, 3-Yr Warranty",Cavern Imports,24-Mar-26,MSI Cubi - Gateways,31-Mar-2026,1,,Complete,PO-2227 5830,24-Mar-2026,May-26,,,$590.00,$590.00,11441,
+1,40 Upper Heidelberg Road Ivanhoe - EMS,JN-6337,Cavern Imports trading as Warragul Computer Repair,MSI Cubi - RAVEN,"12th gen i5 10 core 12 thread CPU
+500GB NVME MSI SSD
+16GB Ram, 3-Yr Warranty",Cavern Imports,29-Jun-26,RFQ - MSI Cubi's,,1,,Delivered, PO-2898 6337,7-Jul-2026,Jul-26,,,$635.45,$635.45,11942,
+2,223-231 Johnston St - EMS,JN-6338,Cavern Imports trading as Warragul Computer Repair,MSI Cubi - RAVEN,"12th gen i5 10 core 12 thread CPU
+500GB NVME MSI SSD
+16GB Ram, 3-Yr Warranty",Cavern Imports,29-Jun-26,RFQ - MSI Cubi's,,1,,Delivered, PO-2899 6338,7-Jul-2026,Jul-26,,,$635.45,$635.45,11942,
+3,PDNSW - Maitland ACS Migration,JN-6044,Cavern Imports trading as Warragul Computer Repair,MSI Cubi Z SFF - RAVEN,"AMD Ryzen 7 8845HS 8 Core 16 Thread CPU
+1TB NVME SSD with 5 years warranty
+32GB DDR5 RAM, 3-Yr Warranty",Cavern Imports,29-Jun-26,RFQ - MSI Cubi's,,1,,Delivered, PO-2900 6044,7-Jul-2026,Jul-26,,,"$1,090.00","$1,090.00",11945,
+4,The Lindrum - IBP,JN-4407,Cavern Imports trading as Warragul Computer Repair,MSI Cubi Z SFF - RAVEN,"AMD Ryzen 7 8845HS 8 Core 16 Thread CPU
+1TB NVME SSD with 5 years warranty
+32GB DDR5 RAM, 3-Yr Warranty",Cavern Imports,29-Jun-26,RFQ - MSI Cubi's,,1,,Delivered, PO-2901 4943,7-Jul-2026,Jul-26,,,"$1,090.00","$1,090.00",11946,
+5,200 Victoria - IBP,JN-6072,NaturaLight 3D,Floor Plans,3D BMS floorplan and exterior view graphics,,,,,1,,Invoice Received,PO-2738 updated,12-Jun-2026,Jul-26,,,"$3,960.00","$3,960.00",Email,INV-000733
+6,The Lindrum - IBP,JN-4407,NaturaLight 3D,Floor Plans,3D BMS floorplan and exterior view graphics,,,,,1,,Invoice Received,PO-2739 updated,12-Jun-2026,Jul-26,,,"$1,550.00","$1,550.00",Email,INV-000734
+7,720 Bourke - IBP,JN-5749,NaturaLight 3D,Floor Plans,3D BMS floorplan and exterior view graphics,,,,,1,,To be Ordered,,,,,,,$0.00,,
+8,11-19 Whitehall Rd - Assembe - EMS,JN-5830,NaturaLight 3D,Floor Plans,3D BMS floorplan and exterior view graphics,Natural Light 3D,,,,1,,To be Ordered,,,,,,,$0.00,,
+9,40 Upper Heidelberg Road Ivanhoe - EMS,JN-6337,NaturaLight 3D,Floor Plans,3D BMS floorplan and exterior view graphics,Natural Light 3D,,On Server,,1,,To be Ordered,,,,,,,$0.00,,
+10,223-231 Johnston St - EMS,JN-6338,NaturaLight 3D,Floor Plans,3D BMS floorplan and exterior view graphics,Natural Light 3D,,,,1,,To be Ordered,,,,,,,$0.00,,
+11,PDNSW - Maitland ACS Migration,JN-6044,NaturaLight 3D,Floor Plans,"3D BMS floorplan and exterior view graphics
+Estimate for the floor plans is $250.00 + GST.
+Adding the furniture if you wanted it an extra $100.00 + GST.
+Various building exterior graphics $100.00 + GST.",Natural Light 3D,,Maitland - 3D Floor Plans,,1,Richard,Create PO,,,,,,$450.00,$450.00,,
+12,The Lindrum - IBP,JN-4407,USR,USR-N510-H7-4,"1 Port Serial RS485 Modbus to Ethernet Converter 
+(Each RS485 Chain Supports 16 Meters)","anne@usriot.com OR
+The IOT Store info@iot-store.com.au",,,,7,,Delivered, PO-2913 4943,2-Jul-2026,Jul-26,$33.00,$231.00,$45.82,$320.76,Email,USR00356606-20260703205
+13,11-19 Whitehall Rd - Assembe - EMS,JN-5830,USR,USR-N510-H7-4,"1 Port Serial RS485 Modbus to Ethernet Converter 
+(Each RS485 Chain Supports 16 Meters)","anne@usriot.com OR
+The IOT Store info@iot-store.com.au",,,,7,,Delivered, PO-2914 5830,2-Jul-2026,Jul-26,$33.00,$231.00,$45.82,$320.76,Email,A/A
+14,40 Upper Heidelberg Road Ivanhoe - EMS,JN-6337,USR,USR-N510-H7-4,"1 Port Serial RS485 Modbus to Ethernet Converter 
+(Each RS485 Chain Supports 16 Meters)","anne@usriot.com OR
+The IOT Store info@iot-store.com.au",,,,1,,Delivered, PO-2915 6337,2-Jul-2026,Jul-26,$33.00,$33.00,$45.82,$45.82,Email,A/A
+15,223-231 Johnston St - EMS,JN-6338,USR,USR-N510-H7-4,"1 Port Serial RS485 Modbus to Ethernet Converter 
+(Each RS485 Chain Supports 16 Meters)","anne@usriot.com OR
+The IOT Store info@iot-store.com.au",,,,1,,Delivered,PO-2916 6338,2-Jul-2026,Jul-26,$33.00,$33.00,$45.82,$45.82,Email,A/A
+16,Raven R&D,JN-5108,USR,USR-N510-H7-4,"1 Port Serial RS485 Modbus to Ethernet Converter 
+(Each RS485 Chain Supports 16 Meters)","anne@usriot.com OR
+The IOT Store info@iot-store.com.au",,,,1,,Delivered, PO-2917 5108,2-Jul-2026,Jul-26,$33.00,$33.00,$45.82,$45.82,Email,A/A
+17,The Lindrum - IBP,JN-4407,USR,USR-N510-H7-4 - Shipping,"1 Port Serial RS485 Modbus to Ethernet Converter 
+(Each RS485 Chain Supports 16 Meters)",,,,,1,,Delivered, PO-2917 5108,2-Jul-2026,Jul-26,$164.00,$164.00,$227.72,$227.72,Email,A/A
+18,The Lindrum - IBP,JN-4407,Colterlec,ioLogik E1212,"Water Meter ioLogik, Supports 16 Digital Pulse Inputs",,,,,9,,Delivered, PO-2870 4943,30-Jun-2026,Jul-26,,,$365.50,"$3,289.50",QU334376 REV.1,SO613912
+19,11-19 Whitehall Rd - Assembe - EMS,JN-5830,Colterlec,ioLogik E1212,"Water Meter ioLogik, Supports 16 Digital Pulse Inputs",,,,,3,,Delivered, PO-2876 5830,30-Jun-2026,Jul-26,,,$365.50,"$1,096.50",QU334376 REV.1,SO613911
+20,40 Upper Heidelberg Road Ivanhoe - EMS,JN-6337,Colterlec,ioLogik E1210,"Water Meter ioLogik, Supports 16 Digital Pulse Inputs",,,,,2,,Paid - Pending Delivery, PO-2877 6337,30-Jun-2026,Jul-26,,,$333.25,$666.50,QU334376 REV.1,SO613913
+21,223-231 Johnston St - EMS,JN-6338,Colterlec,ioLogik E1210,"Water Meter ioLogik, Supports 16 Digital Pulse Inputs",,,,,2,,Delivered, PO-2878 6338,30-Jun-2026,Jul-26,,,$333.25,$666.50,QU334376 REV.1,SO613914
+22,The Lindrum - IBP,JN-4407,Colterlec,ioLogik Shipping,,,,,,1,,Delivered, PO-2917 5108,30-Jun-2026,Jul-26,,,$25.00,$25.00,QU334376 REV.1,
+23,The Lindrum - IBP,JN-4407,Abakus,Milesight AM319-915M-HCHO-IR,Milesight AM319(L) - Indoor Ambience Sensor,Abakus,,,,4,,Ordered,PO-2959 4943,13-Jul-2026,Jul-26,,,$422.00,"$1,688.00","COMMSEC QUOTE Milesight IoT Sensors – 26-30 Flinders St, Melbourne 09-07-2026",
+24,The Lindrum - IBP,JN-4407,Abakus,Milesight WS302-915M,Milesight WS302 - Sound Level Sensor,Abakus,,,,4,,Ordered,PO-2959 4943,13-Jul-2026,Jul-26,,,$78.00,$312.00,"COMMSEC QUOTE Milesight IoT Sensors – 26-30 Flinders St, Melbourne 09-07-2026",
+25,The Lindrum - IBP,JN-4407,Abakus,Milesight UG65-915M-EA,Milesight UG65 - Industrial Gateway,Abakus,,,,1,,Ordered,PO-2959 4943,13-Jul-2026,Jul-26,,,$525.00,$525.00,"COMMSEC QUOTE Milesight IoT Sensors – 26-30 Flinders St, Melbourne 09-07-2026",
+26,Raven R&D,JN-5108,Abakus,Milesight UG65-915M-EA,Milesight UG65 - Industrial Gateway,Abakus,,,,1,,Ordered,PO-2960 5108,13-Jul-2026,Jul-26,,,$525.00,$525.00,COMMSEC QUOTE - Milesight IoT Sensors – Office Demo 09-07-2026,
+27,Q-Access R&D,JN-6334,ICT, PRT-GX-MBL-SDK, Protege GX Mobile SDK,,,,,1,,Ordered,PO JN-6334,20-Jul-2026,Jul-26,,,"$1,327.75","$1,327.75",Mobile SDK 20_7_26_V1,Proforma - 99893
+28,Q-Access R&D,JN-6334,Kenrone,Kenrone: KR-NFC-CL5126,Smart NFC Lock,,,,,5,,To be Ordered,,,Jul-26,$13.00,$65.00,$18.05,$90.26,2026.7.22  sample Proforma Invoice,KRE202607222201
+29,Q-Access R&D,JN-6334,Kenrone,Kenrone: KR-NFC-CL5126 -  Shipping,Shipping,,,,,1,,Paid - Pending Delivery,,,Jul-26,$45.00,$45.00,$62.49,$62.49,2026.7.22  sample Proforma Invoice,KRE202607222201
+30,Q-Access R&D,JN-6334,Kenrone,Kenrone: SDK,Net SDK,,,,,1,,Paid - Pending Delivery,,,Jul-26,"$1,000.00","$1,000.00","$1,388.56","$1,388.56",2026.7.22  SDK Proforma Invoice,KRE202607222202
+31,The Lindrum - ICN,JN-4407,Cavern Imports trading as Warragul Computer Repair,"2 x Facilities Workstations
+1 x Security Workstation","3 x AMD Ryzen 7 8845HS 8 Core 16 Thread CPU
+16GB DDR5 RAM
+1TB NVME SSD with 5 years warranty 
+AMD Radeon 780M Graphics
+4 x MSI Pro 27 inch IPS level eyecare monitor with speakers
+2 x 32"" MSI FLAT Rapid VA 180Hz 2560*1440 WQHD 1ms 2*HDMI DP
+3 x bluetooth combo mouse and keyboard",,,,,1,,Ordered,PO3073,23-Jul-2026,Jul-26,,,"$4,941.82","$4,941.82",Quote# 11962,
+32,537 Malvern Rd – Mobile Repeater Design,JN-6817,SP & JD Pty Ltd T/A Central Communications & Electrical,DAS Design & Site Survey,"1 x Desktop DAS Design
+1 x Site Survey",,,,,1,,Ordered, PO-3143 6817,3-Aug-2026,Aug-26,,,"$16,000.00","$16,000.00",Quote QU0700_v2.0,
+33,PDNSW - Maitland Key Cabinet,JN-6792,Torus,100 Key Cabinet,Supply key cabinet,,,,,1,,Ordered,,,Sep-26,,,"$25,263.81","$25,263.81",Q-09409-1,
+34,PDNSW - Maitland Key Cabinet,JN-6792,Eve,Labour for Key cabinet,Install Key Cabinet,,,,,1,,Ordered,,,Sep-26,,,"$3,616.11","$3,616.11",Q2025-005-3,
+35,PDNSW - 6PSQ 5.N.8 FCR1 Card Reader Fault,JN-6574,Eve,,Service Works,,,,,1,,Complete,,,Jul-26,,,$315.00,$315.00,,
+36,PDNSW - 6PSQ Level 12 Alarm Investigation,JN-6631,Eve,,Service Works,,,,,1,,Complete,,,Jul-26,,,$437.00,$437.00,,
+37,PDNSW - RGB Renovation Works,JN-6635,Eve,,5x doors in basement,,,,,1,,Complete,,,Jul-26,,,"$14,910.39","$14,910.39",Q2026-079-2,
+38,PDNSW - Nowra CCTV & Break Glass Monitoring,JN-6659,Eve,,install cameras and establish BGA mointoring ,,,,,1,,Complete,,,Jul-26,,,"$8,134.86","$8,134.86",,
+39,PDNSW - 6PSQ L14 Tenancy Access Door,JN-6704,Eve,,Add access control door,,,,,1,,Complete,,,Jul-26,,,"$5,051.29","$5,051.29",Q2026-091,
+40,PDNSW -RGB Armoury CCTV,JN-6731,Eve,,add CCTV camera to new area,,,,,1,,Ordered,,,Jul-26,,,"$2,901.21","$2,901.21",Q2026-094,
+41,PDNSW -RGB 4x Office Doors GF,JN-6765,Eve,,Add access control door x4,,,,,1,,Ordered,,,Jul-26,,,"$11,664.40","$11,664.40",Q2026-095,
+42,Newcastle CCTV Fault,JN-6844,Eve,,Service Works,,,,,1,,To be Ordered,,,Aug-26,,,,,KL-CPL26353-R002 ,
+43,COMMSecurity Office - KODE OS,na,Kode Labs,,Annual Ongoing License Fee for KODE OS,,,,,1,Tas,To be Ordered,,,Aug-26,,,"$2,135.00","$2,135.00",,KL-CPL26353-R002
+44,2 Bowen Crescent,JN-6882,Cavern Imports trading as Warragul Computer Repair,MSI Cubi - RAVEN,"Cubi NUC Core 3-100U CPU
+256GB NVME MSI SSD
+8GB Ram, 3-Yr Warranty",,12-Aug-26,RFQ -2 x MSI Cubi',,1,Richard,Paid - Pending Delivery,PO-3216 6882,,Aug-26,,,$635.45,$635.45,MSI Cubi - comm i3.pdf,MSI Cubi-2 Bowen Crescen  JN6882-Invoice.pdf
+45,565-569 Melbourne Rd,JN-6884,Cavern Imports trading as Warragul Computer Repair,MSI Cubi - RAVEN,"Cubi NUC Core 3-100U CPU
+256GB NVME MSI SSD
+8GB Ram, 3-Yr Warranty",,12-Aug-26,RFQ -2 x MSI Cubi',,1,Richard,Paid - Pending Delivery,PO-3217 6884,,Aug-26,,,$635.45,$635.45,MSI Cubi - comm i3.pdf,MSI Cubi-565-569 Melbourne Rd N-6884-Invoice.pdf
+46,2 Bowen Crescent,JN-6882,USR,USR-N510-H7-4,"1 Port Serial RS485 Modbus to Ethernet Converter 
+(Each RS485 Chain Supports 16 Meters)","anne@usriot.com OR
+The IOT Store info@iot-store.com.au",12-Aug-26,RFQ - 4 x USR-N510-H7-4,,2,Richard,Paid - Pending Delivery,PO-3218 6882,,Aug-26,$33.00,$66.00,$45.82,$91.65,,USR00356606-20260812207
+47,565-569 Melbourne Rd,JN-6884,USR,USR-N510-H7-4,"1 Port Serial RS485 Modbus to Ethernet Converter 
+(Each RS485 Chain Supports 16 Meters)","anne@usriot.com OR
+The IOT Store info@iot-store.com.au",12-Aug-26,RFQ - 4 x USR-N510-H7-4,,2,Richard,Paid - Pending Delivery,PO-3219 6884,,Aug-26,$33.00,$66.00,$45.82,$91.65,,USR00356606-20260812207
+48,2 Bowen Crescent,JN-6882,USR,Shipping,,,12-Aug-26,RFQ - 4 x USR-N510-H7-4,,1,Richard,Paid - Pending Delivery,PO-3219 6884,,Aug-26,$53.00,$53.00,$73.59,$73.59,,USR00356606-20260812207
+49,PDNSW - Maitland Key Cabinet,JN-6792,Eve,,Install key cabinet supplied by Torus,,,,,,Tas,,,,,,$0.00,$0.00,$0.00,,
+50,PDNSW - Maitland Key Cabinet,JN-6792,Torus,,,,,,,,Tas,,,,,,$0.00,$0.00,$0.00,,
+51,2 Bowen Crescent,JN-6882,https://www.mightyape.com.au/,Switch,1x Ubiquiti USW-Flex Mini 5-Port With PoE Gigabit UniFi Switch [USW-Flex-Mini],,,,,1,Richard,Paid - Pending Delivery,,,Aug-26,,$0.00,$66.95,$66.95,,
+52,565-569 Melbourne Rd,JN-6884,https://www.mightyape.com.au/,Switch,1x Ubiquiti USW-Flex Mini 5-Port With PoE Gigabit UniFi Switch [USW-Flex-Mini],,,,,1,Richard,Paid - Pending Delivery,,,Aug-26,,$0.00,$66.95,$66.95,,
+53,2 Bowen Crescent,JN-6882,https://www.mightyape.com.au/,Shipping,,,,,,1,Richard,Paid - Pending Delivery,,,Aug-26,,$0.00,$8.98,$8.98,,
+54,565-569 Melbourne Rd,JN-6884,https://www.mightyape.com.au/,Shipping,,,,,,1,Richard,Paid - Pending Delivery,,,Aug-26,,$0.00,$8.98,$8.98,,
+55,The Lindrum - ICN,JN-4407,Cavern Imports trading as Warragul Computer Repair,"Acer: Altos R380 F6 3.5""/2.5"" Model Server",See: Quote # 12213,,,,,1,Tas,,PO-3281-4407,,Aug-26,,$0.00,"$39,600.00","$39,600.00","Q:12213: commsecurity acer final 39600.00.pdf
+Quote or Unpaid Invoice # 12213",
+56,36 Wellington St - ICN Maintenance,JN-6963,Dicker Data,ICN Equipment Licenses,,,,,,,,,,,,,$0.00,,$0.00,,

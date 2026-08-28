@@ -197,7 +197,11 @@ class TestFilesAreWhereTheyBelong(unittest.TestCase):
     #: Files that legitimately live at the repo root.
     ROOT_ALLOWED = {"dev.ps1", "Makefile", "Dockerfile", "check.py",
                     ".dockerignore", ".gitattributes", ".gitignore",
-                    "pyrightconfig.json"}
+                    "pyrightconfig.json",
+                    # Machine-specific and gitignored: a real OIDC client
+                    # id, a different port. Belongs at the root because
+                    # dev.ps1 dot-sources it from there.
+                    "dev.local.ps1"}
 
     def test_nothing_stray_at_the_repo_root(self):
         """Loose files copied to the root instead of into `ops/` or
@@ -211,7 +215,8 @@ class TestFilesAreWhereTheyBelong(unittest.TestCase):
             and name not in self.ROOT_ALLOWED
             and not name.endswith(".md")]
         self.assertEqual(sorted(strays), [],
-                         "these belong in ops/, ops/static/, tools/ or tests/")
+                         "these belong in ops/, ops/static/, tools/ or tests/ "
+                         "-- or are throwaway scripts to delete")
 
     def test_no_test_files_outside_the_tests_directory(self):
         strays = []

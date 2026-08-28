@@ -317,6 +317,70 @@ class Db:
                    VALUES (?,?,'role_grant','user',?,?)""",
                 (now, actor_id, str(user_id), f"entity={entity_id} role={role}"))
 
+    def revoke_role(self, user_id, entity_id, role, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            cur = c.execute(
+                """DELETE FROM user_entity_role
+                   WHERE user_id = ? AND entity_id = ? AND role = ?""",
+                (user_id, entity_id, role))
+            if not cur.rowcount:
+                return False
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'role_revoke','users',?,?)""",
+                (now, actor_id, str(user_id), f"{role} on entity {entity_id}"))
+            return True
+
+    def set_user_active(self, user_id, active, actor_id):
+        """Switching someone off must take effect NOW, not when their
+        session happens to expire -- so the token version moves with it and
+        every cookie they hold stops validating on the next request."""
+        now = int(time.time())
+        with self._tx() as c:
+            row = c.execute("SELECT is_active, display_name FROM users "
+                            "WHERE id = ?", (user_id,)).fetchone()
+            if row is None or row["is_active"] == (1 if active else 0):
+                return False
+            c.execute(
+                "UPDATE users SET is_active = ?, token_version = token_version + 1 "
+                "WHERE id = ?", (1 if active else 0, user_id))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,?,'users',?,?)""",
+                (now, actor_id,
+                 "user_activate" if active else "user_deactivate",
+                 str(user_id),
+                 f"{row['display_name']}"
+                 + ("" if active else "; every session invalidated")))
+            return True
+
+    def users_with_roles(self, entity_ids=None):
+        rows = self.query(
+            """SELECT u.id, u.email, u.display_name, u.is_active,
+                      u.created_ts, u.last_seen_ts
+               FROM users u ORDER BY u.display_name, u.email""")
+        grants = self.query(
+            """SELECT r.user_id, r.entity_id, r.role, r.granted_ts,
+                      e.name AS entity_name, g.display_name AS granted_by
+               FROM user_entity_role r
+               JOIN entity e ON e.id = r.entity_id
+               LEFT JOIN users g ON g.id = r.granted_by
+               ORDER BY r.entity_id, r.role""")
+        by_user = {}
+        for grant in grants:
+            by_user.setdefault(grant["user_id"], []).append(dict(grant))
+        return [dict(row, roles=by_user.get(row["id"], [])) for row in rows]
+
+    def admins_on(self, entity_id):
+        return [r["user_id"] for r in self.query(
+            """SELECT r.user_id FROM user_entity_role r
+               JOIN users u ON u.id = r.user_id
+               WHERE r.entity_id = ? AND r.role = 'admin' AND u.is_active = 1""",
+            (entity_id,))]
+
     def roles_for(self, user_id):
         """Resolved from the DB on EVERY request. A token is never a bag of
         permissions, so a role edit applies on the next click (§9)."""

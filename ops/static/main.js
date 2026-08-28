@@ -12,6 +12,7 @@ const SCREENS = {
   claims: () => import("./claims.js"),
   schedules: () => import("./schedules.js"),
   worklist: () => import("./worklist.js"),
+  access: () => import("./access.js"),
 };
 
 async function boot() {

@@ -36,8 +36,19 @@ $env:OPS_DATA            = $Data
 $env:OPS_SECRETS_PATH    = Join-Path $Data "secrets\store.json"
 $env:OPS_TLS             = "off"
 $env:OPS_PORT            = "$Port"
-$env:OIDC_CLIENT_ID      = "dev-client-not-registered"
 $env:OIDC_REDIRECT_URI   = "http://localhost:$Port/auth/callback"
+
+# A real OIDC client id, if there is one. It is NOT a secret, but it is
+# site-specific, so it lives in a gitignored file rather than in a script
+# that is copied between machines. `dev.local.ps1` is dot-sourced, so it
+# may set anything -- OPS_HOSTED_DOMAIN, a different port, whatever the
+# machine needs.
+if (Test-Path "$PSScriptRoot\dev.local.ps1") {
+    . "$PSScriptRoot\dev.local.ps1"
+}
+if (-not $env:OIDC_CLIENT_ID) {
+    $env:OIDC_CLIENT_ID  = "dev-client-not-registered"
+}
 
 # ------------------------------------------------------------- -Seed
 if ($Seed) {
@@ -130,6 +141,17 @@ New-Item -ItemType Directory -Force -Path (Join-Path $Data "secrets") | Out-Null
 if (-not (Test-Path $env:OPS_SECRETS_PATH)) {
     Write-Host "  creating dev secret store" -ForegroundColor DarkGray
     "dev-not-a-real-secret" | & $py -m ops.secrets set OIDC_CLIENT_SECRET | Out-Null
+}
+
+# Say which client is in play. Signing in against a placeholder fails at
+# Google with a message about the client, not about this machine, so it is
+# worth knowing before the browser opens.
+if ($env:OIDC_CLIENT_ID -eq "dev-client-not-registered") {
+    Write-Host "  OIDC: placeholder client -- sign-in will not work." -ForegroundColor DarkGray
+    Write-Host "        Use  .\dev.ps1 -Session  for a dev cookie, or set" -ForegroundColor DarkGray
+    Write-Host "        OIDC_CLIENT_ID in dev.local.ps1 to use a real one." -ForegroundColor DarkGray
+} else {
+    Write-Host "  OIDC: $($env:OIDC_CLIENT_ID)" -ForegroundColor DarkGray
 }
 
 if (-not (Test-Path "$Data\ops.db")) {

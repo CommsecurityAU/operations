@@ -400,6 +400,17 @@ class TestBrandColoursStayInTheChrome(unittest.TestCase):
             "accent and alarm are too close in hue to tell apart")
 
 
+class TestBrowserDefaultsAreOverridden(unittest.TestCase):
+    """A checkbox is the one control browsers still paint in their own
+    colour. Left alone it puts a saturated blue on a screen where nothing
+    else is -- and blue means nothing in this palette, so it reads as a
+    signal that is not one."""
+
+    def test_checkboxes_use_the_accent(self):
+        css = code_only(read(os.path.join(STATIC, "base.css")))
+        self.assertIn("accent-color: var(--accent)", css)
+
+
 class TestFilterValueOrder(unittest.TestCase):
     """A list of months in alphabetical order is a list nobody can scan.
 
@@ -470,7 +481,8 @@ class TestBudgets(unittest.TestCase):
     """
 
     SHELL = "main.js"
-    SCREENS = ("projects.js", "claims.js", "worklist.js", "schedules.js")
+    SCREENS = ("projects.js", "claims.js", "worklist.js", "schedules.js",
+               "access.js")
 
     def size(self, names):
         return sum(os.path.getsize(os.path.join(STATIC, n)) for n in names)

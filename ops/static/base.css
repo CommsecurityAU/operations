@@ -634,6 +634,22 @@ a.signin:hover { background: var(--s-2); text-decoration: none; }
 .tag.is-variation  { color: var(--accent); }
 .tag.is-correction { color: var(--t-1); }
 .tag.is-unknown    { color: var(--t-2); }
+/* A checkbox is the one control browsers still paint in their own colour.
+ * Left alone it puts a saturated blue on a screen where nothing else is,
+ * and blue means nothing in this palette. */
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+/* A switched-off account: the row is muted, and this says why. */
+.tag.is-off { color: var(--alarm); }
+
+/* A note under a table, not a caption above it: read after the thing it
+ * qualifies, not before. */
+p.note { max-width: 70ch; font-size: var(--fs-small); margin-top: var(--u3); }
 
 /* ------------------------------------------------------- claim plan */
 .plan-panel { margin-top: var(--u4); }

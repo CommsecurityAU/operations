@@ -76,13 +76,22 @@ def register(router: Router, db: Db) -> None:
             "lines": rows,
             "totals": {
                 "committed_cents": sum(
-                    r["total_cents"] for r in rows if not r["cancelled_date"]),
+                    r["total_cents"] for r in rows
+                    if not r["cancelled_date"] and not r["is_estimate"]),
+                "estimated_cents": sum(
+                    r["total_cents"] for r in rows
+                    if not r["cancelled_date"] and r["is_estimate"]),
+                # `is_paid` and `is_delivered` come from the view, which
+                # reads a date where there is one and the stated state
+                # where there is not -- the same source the state column
+                # uses, so the figures cannot disagree with the rows.
                 "paid_cents": sum(
                     r["total_cents"] for r in rows
-                    if r["paid_date"] and not r["cancelled_date"]),
+                    if r["is_paid"] and not r["is_estimate"]),
                 "undelivered_cents": sum(
                     r["total_cents"] for r in rows
-                    if not r["delivered_date"] and not r["cancelled_date"]),
+                    if not r["is_delivered"] and not r["cancelled_date"]
+                    and not r["is_estimate"]),
             },
             "suppliers": db.query(
                 f"""SELECT id, name, default_currency FROM supplier
@@ -254,6 +263,10 @@ def register(router: Router, db: Db) -> None:
                 fields["currency"] = currency
         if "supplier_quote_id" in payload:
             fields["supplier_quote_id"] = payload["supplier_quote_id"] or None
+        if "is_estimate" in payload:
+            # An estimate becomes real in place, so the month keeps its
+            # forecast while somebody types the real figure.
+            fields["is_estimate"] = 1 if payload["is_estimate"] else 0
         if "supplier_invoice_id" in payload:
             fields["supplier_invoice_id"] = payload["supplier_invoice_id"] or None
         if "period_id" in payload:

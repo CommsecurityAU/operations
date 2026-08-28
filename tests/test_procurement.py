@@ -314,6 +314,75 @@ class TestNothingIsSilentlyIgnored(Case):
                          "the API accepts these and the database drops them")
 
 
+class TestTheFiguresAgreeWithTheRows(Case):
+    """The screen said twenty lines were `complete` or `paid - pending
+    delivery` and reported $0.00 paid, because the figures counted
+    `paid_date` while the state column also read the stated state. Whichever
+    number someone believed, they had been given a reason to distrust the
+    other."""
+
+    def test_a_stated_paid_state_counts_as_paid(self):
+        row = self.line(self.bourke, total_cents=100000,
+                        stated_state="paid - pending delivery")
+        self.assertEqual(self.db.scalar(
+            "SELECT is_paid FROM v_procurement_line WHERE id = ?",
+            (row["id"],)), 1)
+        self.assertEqual(self.db.scalar(
+            "SELECT paid_cents FROM v_project_procurement WHERE project_id = ?",
+            (self.bourke,)), 100000)
+
+    def test_both_spellings_count(self):
+        """The register writes `paid - pending delivery`; the derived state
+        writes `paid, pending delivery`. A definition catching only one
+        would be a definition nobody could rely on."""
+        for state in ("paid - pending delivery", "paid, pending delivery",
+                      "complete"):
+            row = self.line(self.bourke, stated_state=state)
+            self.assertEqual(self.db.scalar(
+                "SELECT is_paid FROM v_procurement_line WHERE id = ?",
+                (row["id"],)), 1, state)
+
+    def test_a_date_still_counts(self):
+        row = self.line(self.bourke)
+        self.db.update_procurement_line(
+            row["id"], {"paid_date": "2026-07-01"}, self.user["id"])
+        self.assertEqual(self.db.scalar(
+            "SELECT is_paid FROM v_procurement_line WHERE id = ?",
+            (row["id"],)), 1)
+
+    def test_complete_counts_as_delivered_too(self):
+        row = self.line(self.bourke, stated_state="complete")
+        self.assertEqual(self.db.scalar(
+            "SELECT is_delivered FROM v_procurement_line WHERE id = ?",
+            (row["id"],)), 1)
+
+    def test_to_be_ordered_is_neither(self):
+        row = self.line(self.bourke, stated_state="to be ordered")
+        got = self.db.query_one(
+            "SELECT is_paid, is_delivered FROM v_procurement_line WHERE id = ?",
+            (row["id"],))
+        self.assertEqual((got["is_paid"], got["is_delivered"]), (0, 0))
+
+    def test_a_cancelled_line_is_neither_however_it_reads(self):
+        """Nothing was paid for something nobody will pay for."""
+        row = self.line(self.bourke, stated_state="complete")
+        self.db.update_procurement_line(
+            row["id"], {"cancelled_date": "2026-07-06"}, self.user["id"])
+        got = self.db.query_one(
+            "SELECT is_paid, is_delivered FROM v_procurement_line WHERE id = ?",
+            (row["id"],))
+        self.assertEqual((got["is_paid"], got["is_delivered"]), (0, 0))
+
+    def test_an_estimate_is_never_paid(self):
+        """It has not been ordered, so there is nothing to have paid."""
+        row = self.line(self.bourke, total_cents=100000, is_estimate=1,
+                        stated_state="to be ordered")
+        self.assertEqual(self.db.scalar(
+            "SELECT paid_cents FROM v_project_procurement WHERE project_id = ?",
+            (self.bourke,)), 0)
+        self.assertTrue(row)
+
+
 class TestWhatAProjectHasCost(Case):
     def test_committed_paid_and_outstanding(self):
         self.line(self.bourke, total_cents=100000)

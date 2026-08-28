@@ -56,6 +56,7 @@ export async function render(root) {
 
   const figures = {
     committed: figure("Committed", "is-primary"),
+    estimated: figure("Estimated"),
     paid: figure("Paid"),
     undelivered: figure("Not yet delivered", "is-attention"),
     lines: figure("Lines"),
@@ -64,10 +65,17 @@ export async function render(root) {
   function summarise(visible) {
     const live = visible.filter((r) => !r.cancelled_date);
     const sum = (rows) => rows.reduce((t, r) => t + r.total_cents, 0);
-    figures.committed.set(fmt.money(sum(live)));
-    figures.paid.set(fmt.money(sum(live.filter((r) => r.paid_date))));
+    // An estimate is not a commitment: $1.57m of them beside $160k of
+    // real orders would make committed cost wrong by a factor of ten.
+    const real = live.filter((r) => !r.is_estimate);
+    figures.committed.set(fmt.money(sum(real)));
+    figures.estimated.set(fmt.money(sum(live.filter((r) => r.is_estimate))));
+    // From the view, not from the dates: a line whose state says paid IS
+    // paid, however it came to say so. Counting only dates made the screen
+    // report $0.00 beside twenty rows reading `complete`.
+    figures.paid.set(fmt.money(sum(real.filter((r) => r.is_paid))));
     figures.undelivered.set(
-      fmt.money(sum(live.filter((r) => !r.delivered_date))));
+      fmt.money(sum(real.filter((r) => !r.is_delivered))));
     figures.lines.set(String(visible.length));
   }
 
@@ -168,7 +176,12 @@ export async function render(root) {
     { key: "job_code", label: "Job code", cls: () => "mono" },
     { key: "supplier_name", label: "Supplier", cls: () => "text",
       fmt: (v) => v || "\u2013" },
-    { key: "item", label: "Item", cls: () => "text", fmt: (v) => v || "\u2013" },
+    { key: "item", label: "Item", cls: () => "text",
+      fmt: (v, r) => (r.is_estimate
+        ? h("span", null, v || "\u2013",
+            h("span", { class: "tag", title: "not yet quoted or ordered" },
+              "estimate"))
+        : (v || "\u2013")) },
     { key: "quantity", label: "Qty", align: "right" },
     { key: "currency", label: "Cur", cls: () => "mono" },
     { key: "total_cents", label: "Cost", align: "right", fmt: fmt.moneyDash },
@@ -207,6 +220,11 @@ export async function render(root) {
                         open("invoiceDialog", row);
                       } }, "Invoice")),
     });
+  }
+
+  // A filter needs a value to filter on, and `is_estimate` is a number.
+  for (const line of data.lines) {
+    line.kind = line.is_estimate ? "estimate" : "ordered";
   }
 
   mount(root, h("div", { class: "content" },

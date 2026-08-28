@@ -1,6 +1,6 @@
 # MANIFEST — where every file goes
 
-**As at:** 28 August 2026 · **809 tests** · pyright --strict clean
+**As at:** 28 August 2026 · **834 tests** · pyright --strict clean
 
 The `repo/` folder mirrors `C:\Dev\operations` exactly. Copy it over the top
 and the paths land correctly — no guessing which `main` is which.
@@ -57,7 +57,9 @@ C:\Dev\operations\
 │   │   ├── 012_procurement.sql        quotes, orders, lines, invoices (ADR-40)
 │   │   ├── 013_supplier_alias.sql     resolved names, never guessed (ADR-41)
 │   │   ├── 014_register_state.sql     what the sheet said
-│   │   └── 015_stated_state.sql       a state with no date behind it
+│   │   ├── 015_stated_state.sql       a state with no date behind it
+│   │   ├── 016_estimates.sql          an estimate is not a commitment (ADR-43)
+│   │   └── 017_paid_delivered.sql     one definition of paid (ADR-45)
 │   ├── modules/                       §6 FEATURE MODULES
 │   │   ├── __init__.py
 │   │   ├── projects.py                register CRUD, validation, routes
@@ -114,6 +116,7 @@ C:\Dev\operations\
     ├── test_procurement.py            dates, states, FX at the extended total
     ├── test_procurement_api.py        editing everything over HTTP
     ├── test_import_suppliers.py       re-runnable, never destructive
+    └── test_import_estimates.py       estimates apart from commitments
     ├── test_restore.py                pre-flight and restore ordering
     └── test_secrets.py                store, CLI, no-fallback
 ```
@@ -130,11 +133,11 @@ secrets, TLS. `.gitignore` covers it.
 
 ```powershell
 cd C:\Dev\operations
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 809 OK
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 834 OK
 .\dev.ps1 -Stale                                             # running == disk?
 ```
 
-If the count is below 809, a test file did not land. If `-Stale` says STALE,
+If the count is below 834, a test file did not land. If `-Stale` says STALE,
 restart the server — Python loads a module once, so a running process can be
 several edits behind the working tree while every test passes.
 

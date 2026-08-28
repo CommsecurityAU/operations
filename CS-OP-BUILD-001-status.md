@@ -499,36 +499,65 @@ per unit. The sheet converts last, and so does `Db.extend`.
 
 ---
 
+## The expense forecast, 28 August
+
+**$1.57m of estimates are in.** The Project Expenses matrix carries early
+estimates of future procurement, flagged in orange: 31 cells,
+$1,576,928.29, of which 29 could be placed. They are ten times the value of
+the real orders, so `is_estimate` keeps them apart and every view reports
+committed, estimated and forecast separately (ADR-43).
+
+**Reading the flags took three attempts and taught something.** Colour
+survives no export, so a script runs inside the workbook — but the legend
+cell says `#F26722`, the brand colour, while the flags are `#FF9900`,
+Google's palette orange. Nobody types a hex when flagging a cell; they pick
+the nearest swatch. A tolerance of 90 found nothing while looking at 31
+orange cells, and the first attempt read the background when the flag is on
+the FONT (ADR-44).
+
+**The confirmation is worth keeping.** From Oct-26 onward every month in
+the matrix is entirely estimate, matching the sheet's own monthly totals to
+the dollar — and `Jun-27` is short by exactly the one row that could not be
+placed.
+
+    Oct-26   $94,381   all estimate      Feb-27  $117,000   all estimate
+    Nov-26   $13,000   all estimate      Apr-27  $200,954   all estimate
+    Dec-26   $25,000   all estimate      May-27  $389,900   all estimate
+
+**And a screen that disagreed with itself.** Twenty rows read `complete` or
+`paid - pending delivery` while the Paid figure said $0.00, because the
+figures counted dates and the state column read the stated state as well.
+`is_paid` and `is_delivered` are computed once now, in the view (ADR-45).
+Paid reads $34,415.74.
+
+---
+
 ## Resume point
 
-**STP-0 through STP-3 are built.** What remains is not building:
+**STP-0 through STP-3 are built**, and the platform now holds both sides of
+a project's money: contract, claims, retention and claim plans on one side;
+suppliers, orders, invoices and the expense forecast on the other.
 
-1. **DEPLOY.** Waiting on infrastructure, sequenced rather than deferred.
-   The platform now holds 204 claims, the FY27 forward position, retention
-   on seven projects, PO records, claim plans, 92 suppliers and 58
-   procurement lines — none of it backed up off the laptop. CS-OP-RUN-002
-   has four **[SITE]** gaps needing answers when the VM appears.
-2. **`36 Wellington St - ICN Maintenance (JN-6963)`** is in the procurement
-   register and not in the platform. Its rows are skipped until it exists;
-   creating it needs a job-code decision (ADR-28).
-3. **`Kenrone` defaults to USD** on my inference from its register rows.
-   Worth confirming: it decides how its lines are costed.
-4. **ABNs.** Every one of the 92 suppliers is missing one. A supplier
-   without an ABN is withheld at 47%, so this matters before payments run
-   through the platform rather than beside it.
-5. **Agree a job-number block with iTrade**, then
-   `tools/job_number_range.py`. Four `TBA` rows wait on it.
+1. **DEPLOY.** Waiting on infrastructure. 204 claims, 92 suppliers, 58
+   procurement lines, 29 estimates and every correction made this week —
+   none of it backed up off the laptop.
+2. **Two projects are missing** and their rows are waiting: `36 Wellington
+   St - ICN Maintenance (JN-6963)` from the procurement register, and
+   `PDNSW - 6PSQ L13 Tenancy Access Door` from the expense flags — two
+   cells, $9,051.29. Both need a job-code decision (ADR-28).
+3. **ABNs**: all 92 suppliers are missing one, and a supplier without an
+   ABN is withheld at 47%.
+4. **`Kenrone` defaults to USD** on my inference from its register rows.
+5. **The iTrade job-number block**, which four `TBA` rows wait on.
 
-**Then STP-4**: office expenses and payroll, migration `016`. Then STP-5,
-the dashboard that reads all of it — which is the first screen that shows a
-MARGIN, because contract, claims, retention and committed cost now all
-exist in one place.
+**Then STP-4**, office expenses and payroll — and **STP-5**, the dashboard,
+which is now the first screen that could show a MARGIN: contract, invoiced,
+retention held, committed cost and forecast cost all exist in one place.
 
-**UI debts worth clearing early**, each of which has cost a round trip: the
-project panel closes on every action, so the outcome of Rebuild, Generate
-and Adopt is never visible where it was pressed; a 500 reads as `internal
-error` in the browser while the traceback sits in the server terminal; and
-the register's `Invoiced prior` column now means all invoicing, not prior.
+**UI debts, each of which has cost a round trip:** the project panel closes
+on every action so the outcome is never visible where it was pressed; a 500
+reads as `internal error` while the traceback sits in the terminal; and the
+register's `Invoiced prior` column now means all invoicing, not prior.
 
 ---
 
@@ -539,8 +568,8 @@ cd C:\Dev\operations
 Get-ChildItem -Recurse -File | Unblock-File    # after any copy
 .\dev.ps1                 # serve on 5173, then sign in with Google
 .\dev.ps1 -Stale          # code AND assets, against the delivered values
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 809
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 834
 ```
 
-Fingerprints: code `5f5986c48b2f`, assets `873ce61b8019`.
-Migrations applied: `001` through `015`.
+Fingerprints: code `cfd67c859c30`, assets `945b88180793`.
+Migrations applied: `001` through `017`.

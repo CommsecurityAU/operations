@@ -384,6 +384,7 @@ class Db:
     #: which is worse than refusing it.
     LINE_MUTABLE = ("project_id", "supplier_id", "supplier_po_id",
                     "supplier_quote_id", "currency", "stated_state",
+                    "is_estimate",
                     "supplier_invoice_id", "period_id", "item", "description",
                     "quantity", "currency", "unit_cost_cents", "total_cents",
                     "requested_date", "ordered_date", "invoiced_date",
@@ -414,9 +415,9 @@ class Db:
                     supplier_quote_id, supplier_invoice_id, period_id,
                     item, description, quantity, currency, unit_cost_cents,
                     total_cents, requested_date, ordered_date, invoiced_date,
-                    delivered_date, paid_date, stated_state, note,
-                    created_by, created_ts)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    delivered_date, paid_date, stated_state, is_estimate,
+                    note, created_by, created_ts)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (fields.get("entity_id", 1), fields["project_id"],
                  fields.get("supplier_id"), fields.get("supplier_po_id"),
                  fields.get("supplier_quote_id"),
@@ -427,8 +428,8 @@ class Db:
                  fields.get("total_cents", 0), fields.get("requested_date"),
                  fields.get("ordered_date"), fields.get("invoiced_date"),
                  fields.get("delivered_date"), fields.get("paid_date"),
-                 fields.get("stated_state"), fields.get("note"),
-                 actor_id, now))
+                 fields.get("stated_state"), fields.get("is_estimate", 0),
+                 fields.get("note"), actor_id, now))
             line_id = cur.lastrowid
             c.execute(
                 """INSERT INTO audit_log (ts, actor_user_id, action,

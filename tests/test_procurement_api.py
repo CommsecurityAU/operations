@@ -415,6 +415,23 @@ class TestStatingAStateWithoutADate(Case):
         self.assertNotIn("cancelled", body["states"])
 
 
+class TestEstimatesOnTheScreen(Case):
+    def test_the_totals_are_reported_apart(self):
+        line = self.add()[1]["id"]
+        self.call("PATCH", f"/api/procurement/{line}", {"is_estimate": True})
+        self.add()
+        _s, body = self.call("GET", "/api/procurement")
+        self.assertEqual(body["totals"]["estimated_cents"], 4582)
+        self.assertEqual(body["totals"]["committed_cents"], 4582)
+
+    def test_an_estimate_can_be_made_real(self):
+        line = self.add()[1]["id"]
+        self.call("PATCH", f"/api/procurement/{line}", {"is_estimate": True})
+        self.call("PATCH", f"/api/procurement/{line}", {"is_estimate": False})
+        _s, body = self.call("GET", "/api/procurement")
+        self.assertEqual(body["totals"]["estimated_cents"], 0)
+
+
 class TestPermissions(Case):
     roles = ("viewer",)
 

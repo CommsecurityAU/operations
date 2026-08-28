@@ -52,8 +52,10 @@ Stated explicitly so nobody has to infer it again.
 | `012` | STP-3 | supplier_quote, supplier_po, procurement_line, supplier_invoice (ADR-40) — **applied** |
 | `013` | STP-3 | supplier_alias: names resolved, never guessed (ADR-41) — **applied** |
 | `014`, `015` | STP-3 | a state with nothing dated behind it — **applied** |
-| `016` | STP-4 | office_expense_line, payroll_rate, tax_rate |
-| `017` | STP-5 | rollup views only |
+| `016` | STP-3 | an estimate is not a commitment (ADR-43) — **applied** |
+| `017` | STP-3 | one definition of paid and delivered (ADR-45) — **applied** |
+| `018` | STP-4 | office_expense_line, payroll_rate, tax_rate |
+| `019` | STP-5 | rollup views only |
 
 **STP-0 and STP-1 share migration `001`.** ARCH-001 assigned the project
 register to STP-1's migration, but the register is what STP-0's exit
@@ -249,9 +251,15 @@ supplier and fixed at quote — so it belongs on `supplier_quote` beside the
 USD amount. The USD figure and the rate are the facts; the AUD is
 reproducible from them forever.
 
+**The expense forecast is in too.** 29 of the 31 orange-flagged cells in
+the Project Expenses matrix, $1,567,877 — early estimates of future
+procurement, kept apart from committed cost because they are ten times its
+size (ADR-43).
+
 **Still open.** Every supplier is missing an ABN, and one without is
-withheld at 47%. `36 Wellington St - ICN Maintenance (JN-6963)` is in the
-register and not in the platform.
+withheld at 47%. Two projects are named in the source and absent from the
+platform: `36 Wellington St - ICN Maintenance (JN-6963)` and `PDNSW - 6PSQ
+L13 Tenancy Access Door`.
 
 ## STP-4 — Office expenses
 
@@ -266,7 +274,7 @@ dated rate table. One wage change propagates automatically.
 
 **Proposal.**
 
-- Migration `016`: `office_expense_line`, `payroll_rate`, `tax_rate`
+- Migration `018`: `office_expense_line`, `payroll_rate`, `tax_rate`
 - Rates are **dated rows per entity, never configuration** (ADR-20). Every
   computed figure records the `rate_bp` it used, so changing a rate cannot
   restate a prior year
@@ -306,7 +314,7 @@ and no cell can be `#REF!` or `#N/A` by construction.
 
 **Proposal.**
 
-- Migration `017`: `v_project_financials`, `v_monthly_pl`, `v_dashboard`,
+- Migration `019`: `v_project_financials`, `v_monthly_pl`, `v_dashboard`,
   `v_by_type`, `v_by_client` — views only, no new fact tables
 - Operations Summary, monthly P&L, actual vs plan vs forecast, by type, by
   client, by project

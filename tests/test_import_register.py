@@ -160,6 +160,97 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(cls, "B")
 
 
+class TestThePreviousReleaseCanStillWrite(Base):
+    """Caught by the N-1 gate, which is what it is for.
+
+    Migration `007` made `contract_value_cents` authoritative and backfilled
+    it from the `customer_po` rows migration `003` had created. That
+    backfill ran once. The PREVIOUS release's importer writes
+    `purchase_order_cents` and creates no such rows, so a project it
+    inserted against this schema had a contract of ZERO and every derived
+    figure read zero.
+
+    Not only a test artefact: roll back, create a project, roll forward, and
+    that project has no contract.
+    """
+
+    def test_a_project_written_the_old_way_still_has_a_contract(self):
+        self.conn.execute(
+            """INSERT INTO project (entity_id, name, job_code, status,
+                   created_ts, purchase_order_cents, invoiced_prior_cents)
+               VALUES (1,'Old Code','JN-1,1','Active',0,29500000,8850000)""")
+        self.assertEqual(self.conn.execute(
+            "SELECT contract_value_cents FROM project WHERE name='Old Code'"
+        ).fetchone()[0], 29500000)
+
+    def test_it_shows_in_orders_in_hand(self):
+        self.conn.execute(
+            """INSERT INTO project (entity_id, name, job_code, status,
+                   created_ts, purchase_order_cents)
+               VALUES (1,'Old Code','JN-1,1','Active',0,29500000)""")
+        self.assertEqual(self.conn.execute(
+            """SELECT orders_in_hand_cents FROM v_project_orders_in_hand
+               WHERE project_name = 'Old Code'""").fetchone()[0], 29500000)
+
+    def test_a_contract_set_the_new_way_is_not_touched(self):
+        self.conn.execute(
+            """INSERT INTO project (entity_id, name, job_code, status,
+                   created_ts, contract_value_cents)
+               VALUES (1,'New','JN-2,2','Active',0,19861000)""")
+        self.conn.execute(
+            "UPDATE project SET purchase_order_cents = 1 WHERE name='New'")
+        self.assertEqual(self.conn.execute(
+            "SELECT contract_value_cents FROM project WHERE name='New'"
+        ).fetchone()[0], 19861000)
+
+    def test_invoiced_falls_back_to_the_project_column(self):
+        """Migration `003` turned `invoiced_prior_cents` into opening-balance
+        claims and `007`'s view reads those. Both ran once. The previous
+        release writes the column and creates no claims, so its projects
+        read as never invoiced and orders in hand came out as the WHOLE
+        contract -- overstating what is left to bill, which is the worse
+        direction for that figure to be wrong in."""
+        self.conn.execute(
+            """INSERT INTO project (entity_id, name, job_code, status,
+                   created_ts, purchase_order_cents, invoiced_prior_cents)
+               VALUES (1,'Old Code','JN-1,1','Active',0,29500000,8850000)""")
+        row = self.conn.execute(
+            """SELECT invoiced_prior_cents, orders_in_hand_cents
+               FROM v_project_orders_in_hand
+               WHERE project_name = 'Old Code'""").fetchone()
+        self.assertEqual(row[0], 8850000)
+        self.assertEqual(row[1], 29500000 - 8850000)
+
+    def test_one_claim_supersedes_the_column(self):
+        """The claim rows are the record; the column is what preceded them.
+        `EXISTS` rather than a sum, so a project whose claims total zero
+        reads zero instead of falling back to a figure it has superseded."""
+        self.conn.execute(
+            """INSERT INTO project (entity_id, name, job_code, status,
+                   created_ts, purchase_order_cents, invoiced_prior_cents)
+               VALUES (1,'Both','JN-4,4','Active',0,29500000,8850000)""")
+        project_id = self.conn.execute(
+            "SELECT id FROM project WHERE name='Both'").fetchone()[0]
+        self.conn.execute(
+            """INSERT INTO claim_line (entity_id, project_id, status,
+                   amount_cents, is_opening_balance, claim_date,
+                   invoiced_date, created_ts)
+               VALUES (1,?, 'invoiced', 1000000, 1, '2026-06-30',
+                       '2026-06-30', 0)""", (project_id,))
+        self.assertEqual(self.conn.execute(
+            """SELECT invoiced_prior_cents FROM v_project_orders_in_hand
+               WHERE project_name = 'Both'""").fetchone()[0], 1000000)
+
+    def test_a_zero_purchase_order_changes_nothing(self):
+        """The trigger fires only where there is nothing to lose."""
+        self.conn.execute(
+            """INSERT INTO project (entity_id, name, job_code, status,
+                   created_ts) VALUES (1,'Empty','JN-3,3','Active',0)""")
+        self.assertEqual(self.conn.execute(
+            "SELECT contract_value_cents FROM project WHERE name='Empty'"
+        ).fetchone()[0], 0)
+
+
 class TestImport(Base):
     def setUp(self):
         super().setUp()

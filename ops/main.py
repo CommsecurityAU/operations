@@ -29,6 +29,7 @@ from ops.modules import procurement as procurement_module
 from ops.modules import projects as projects_module
 from ops.modules import access as access_module
 from ops.modules import claimplan as claimplan_module
+from ops.modules import dashboard as dashboard_module
 from ops.modules import expenses as expenses_module
 from ops.modules import schedules as schedules_module
 from ops.modules import worklist as worklist_module
@@ -50,7 +51,7 @@ MIME = {
 }
 MODULES = [projects_module, worklist_module, claims_module,
            schedules_module, claimplan_module, access_module,
-           procurement_module, expenses_module]   # §6. Explicit, in order.
+           procurement_module, expenses_module, dashboard_module]   # §6. Explicit, in order.
 CERT_WARN_DAYS = 30
 
 

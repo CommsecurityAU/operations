@@ -661,6 +661,37 @@ a.button {
 }
 a.button:hover { border-color: var(--accent-dim); color: var(--accent); }
 
+/* Three small charts side by side. SVG, not a library: twelve rectangles
+ * and a zero line is not worth ninety kilobytes. */
+.charts { display: flex; gap: var(--u5); flex-wrap: wrap; margin: var(--u5) 0; }
+.chart { flex: 1 1 260px; margin: 0; }
+.chart figcaption {
+  font-size: var(--fs-small);
+  color: var(--t-2);
+  margin-bottom: var(--u2);
+}
+svg.bars { width: 100%; height: auto; }
+svg.bars .axis { stroke: var(--line); stroke-width: 1; }
+svg.bars .up { fill: var(--accent); }
+svg.bars .down { fill: var(--alarm); }
+/* A projection is drawn hollow: it has not happened. */
+svg.bars .projected { opacity: 0.45; }
+svg.bars .tick {
+  fill: var(--t-2);
+  font-size: 8px;
+  text-anchor: middle;
+  font-family: var(--font-data);
+}
+/* A month that has been billed, against one that is still a plan. The
+ * accent rather than a badge: a hundred cells each carrying a label is a
+ * table nobody can read. */
+.invoiced { color: var(--accent); }
+
+.figure .sub { display: block; font-size: var(--fs-small); }
+.split { display: flex; gap: var(--u5); flex-wrap: wrap; margin-top: var(--u5); }
+.split > div { flex: 1 1 380px; min-width: 0; }
+.split h2 { font-size: var(--fs-body); margin-bottom: var(--u3); }
+
 table.expense-grid { font-size: var(--fs-small); }
 table.expense-grid th { white-space: nowrap; }
 table.expense-grid tr.group th {

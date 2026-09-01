@@ -13,6 +13,7 @@ const SCREENS = {
   schedules: () => import("./schedules.js"),
   worklist: () => import("./worklist.js"),
   procurement: () => import("./procurement.js"),
+  dashboard: () => import("./dashboard.js"),
   expenses: () => import("./expenses.js"),
   access: () => import("./access.js"),
 };

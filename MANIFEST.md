@@ -1,6 +1,6 @@
 # MANIFEST — where every file goes
 
-**As at:** 29 August 2026 · **907 tests** · pyright --strict clean
+**As at:** 1 September 2026 · **927 tests** · pyright --strict clean
 
 The `repo/` folder mirrors `C:\Dev\operations` exactly. Copy it over the top
 and the paths land correctly — no guessing which `main` is which.
@@ -64,7 +64,9 @@ C:\Dev\operations\
 │   │   ├── 019_invoiced_fallback.sql  N-1: invoiced without claims
 │   │   ├── 020_finance_role.sql       a role for wages (ADR-46)
 │   │   ├── 021_office_expenses.sql    salaries, rates, months (ADR-47)
-│   │   └── 022_payroll_role.sql       salaries are a separate grant (ADR-49)
+│   │   ├── 022_payroll_role.sql       salaries are a separate grant (ADR-49)
+│   │   └── 023_fy_settings.sql        tax on the year, overhead off the
+│   │                                  bottom line (ADR-51)
 │   ├── modules/                       §6 FEATURE MODULES
 │   │   ├── __init__.py
 │   │   ├── projects.py                register CRUD, validation, routes
@@ -74,7 +76,8 @@ C:\Dev\operations\
 │   │   ├── claimplan.py               items, allocations, generation
 │   │   ├── access.py                  roles by entity
 │   │   ├── procurement.py             the buying register
-│   │   └── expenses.py                what the business costs to run
+│   │   ├── expenses.py                what the business costs to run
+│   │   └── dashboard.py               revenue, cost, and what is left
 │   └── static/                        THE BROWSER CODE
 │       ├── index.html                 shell
 │       ├── tokens.css                 the ONLY colour/type/spacing literals
@@ -123,7 +126,8 @@ C:\Dev\operations\
     ├── test_procurement_api.py        editing everything over HTTP
     ├── test_import_suppliers.py       re-runnable, never destructive
     ├── test_import_estimates.py       estimates apart from commitments
-    └── test_expenses.py               salaries, rates, and who may look
+    ├── test_expenses.py               salaries, rates, and who may look
+    └── test_dashboard.py              the arithmetic, and the tax year
     ├── test_restore.py                pre-flight and restore ordering
     └── test_secrets.py                store, CLI, no-fallback
 ```
@@ -140,11 +144,11 @@ secrets, TLS. `.gitignore` covers it.
 
 ```powershell
 cd C:\Dev\operations
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 907 OK
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 927 OK
 .\dev.ps1 -Stale                                             # running == disk?
 ```
 
-If the count is below 907, a test file did not land. If `-Stale` says STALE,
+If the count is below 927, a test file did not land. If `-Stale` says STALE,
 restart the server — Python loads a module once, so a running process can be
 several edits behind the working tree while every test passes.
 

@@ -1,6 +1,6 @@
 # CS-OP-STP-001 — Delivery plan
 
-- **As at:** 29 August 2026
+- **As at:** 1 September 2026
 - **Status:** Live. **Supersedes CS-OP-ARCH-001 §11 in full.**
 - **Depends on:** CS-OP-ARCH-002 (stack, budgets, ADR-08…26)
 - **Companions:** CS-OP-BUILD-001 (build status), CS-OP-RUN-001 (restore runbook)
@@ -54,8 +54,8 @@ Stated explicitly so nobody has to infer it again.
 | `014`, `015` | STP-3 | a state with nothing dated behind it — **applied** |
 | `016` | STP-3 | an estimate is not a commitment (ADR-43) — **applied** |
 | `017` | STP-3 | one definition of paid and delivered (ADR-45) — **applied** |
-| `022` | STP-5 | office_expense_line, payroll_rate, tax_rate |
-| `022` | STP-5 | rollup views only |
+| `023` | STP-5 | office_expense_line, payroll_rate, tax_rate |
+| `023` | STP-5 | rollup views only |
 
 **STP-0 and STP-1 share migration `001`.** ARCH-001 assigned the project
 register to STP-1's migration, but the register is what STP-0's exit

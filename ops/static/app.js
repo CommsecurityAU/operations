@@ -71,6 +71,14 @@ export const fmt = {
   // for the same reason as `rate` -- unit arithmetic belongs in one place,
   // and a stray /100 or *100 is how a figure quietly becomes a hundred
   // times itself.
+  // A share of something, as a whole percentage. Here rather than inline
+  // because the money guardrail cannot tell a percentage from a cents
+  // conversion -- and it is right not to try: both are `* 100`, and one of
+  // them being wrong costs real money.
+  share(part, whole) {
+    if (!whole) return null;
+    return Math.round((part / whole) * 100);
+  },
   toBp(percent) {
     const n = Number(percent);
     return Number.isFinite(n) ? Math.round(n * 100) : 0;

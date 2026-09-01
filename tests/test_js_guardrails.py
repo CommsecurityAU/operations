@@ -315,6 +315,33 @@ class TestTheScreensSeeWhatTheyEdit(unittest.TestCase):
                          "the screen reads these and v_expense_line omits them")
 
 
+class TestEveryScreenHasALink(unittest.TestCase):
+    """A screen registered in `main.js` with no anchor in `index.html` is a
+    screen reachable only by typing the URL.
+
+    It happened with the dashboard: the route worked, the nav did not
+    mention it, and the only symptom was a missing tab.
+    """
+
+    def nav_targets(self):
+        html = read(os.path.join(STATIC, "index.html"))
+        return set(re.findall(r'<a href="#(\w+)"', html))
+
+    def registered_screens(self):
+        body = code_only(read(os.path.join(STATIC, "main.js")))
+        return set(re.findall(r'^\s*(\w+):\s*\(\)\s*=>\s*import\(', body,
+                              re.M))
+
+    def test_every_screen_is_in_the_nav(self):
+        missing = sorted(self.registered_screens() - self.nav_targets())
+        self.assertEqual(missing, [],
+                         "registered but not linked; reachable only by URL")
+
+    def test_every_link_goes_somewhere(self):
+        broken = sorted(self.nav_targets() - self.registered_screens())
+        self.assertEqual(broken, [], "linked but no screen is registered")
+
+
 class TestNothingIsUsedUndeclared(unittest.TestCase):
     """A module-level constant used but never declared.
 
@@ -521,7 +548,8 @@ class TestBudgets(unittest.TestCase):
 
     SHELL = "main.js"
     SCREENS = ("projects.js", "claims.js", "worklist.js", "schedules.js",
-               "access.js", "procurement.js", "expenses.js")
+               "access.js", "procurement.js", "expenses.js",
+               "dashboard.js")
 
     def size(self, names):
         return sum(os.path.getsize(os.path.join(STATIC, n)) for n in names)

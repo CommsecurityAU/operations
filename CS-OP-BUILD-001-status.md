@@ -618,29 +618,71 @@ business costs rather than eleven people's monthly pay.
 
 ---
 
+## STP-5, 1 September — the dashboard
+
+**Every phase is built.** The screen the workbook chain was doing badly, and
+the reason for all of this:
+
+    revenue          $3,529,018.00
+    project cost     $1,726,158.20
+    office cost      $1,774,311.54
+                    ---------------
+    gross profit        $28,548.26
+    corporate tax        $7,137.07
+    net profit          $21,411.19
+
+Nine cards, three SVG charts drawn without a library, a monthly table, cost
+by category, the largest contracts, and invoicing by project by month. It
+lands on the year we are in.
+
+**Two rules it turns on, and the workbook got both wrong** (ADR-51). Tax is
+assessed on the YEAR — the sheet taxed profitable months and gave no credit
+for losses, a quarter of a million out from the block sitting beside it. And
+office overhead comes off the bottom line rather than being spread across
+jobs, which would invent a margin nobody agreed to.
+
+**What happened is marked apart from what is expected** (ADR-52). Actual
+months against projections, billed revenue against forecast, committed cost
+against estimated. The workbook mixed them silently in every row.
+
+---
+
 ## Resume point
 
-**STP-0 through STP-4 are built.** Every importer runs clean from empty and
-the three sides meet:
+**STP-0 through STP-5 are built.** The work left is not building.
 
-    claims FY27          $3,529,018.00
-    procurement FY27     $1,726,158.20
-    office FY27          $1,774,311.54
+### Tomorrow, in order
 
-1. **DEPLOY.** Still waiting on infrastructure, and now the most valuable
-   thing in the building sits on one laptop.
-2. **STP-5, the dashboard.** Everything it needs exists. It is the first
-   screen that can show a MARGIN, and the point of the whole exercise.
-3. **Two projects are missing** and rows are waiting on both: `36
-   Wellington St - ICN Maintenance (JN-6963)` and `PDNSW - 6PSQ L13 Tenancy
-   Access Door`. Each needs a job-code decision (ADR-28).
-4. **ABNs** on all 92 suppliers; one without is withheld at 47%.
-5. **The iTrade job-number block**, which four `TBA` rows wait on.
+1. **RESYNC FROM SOURCE.** Projects, invoicing and expenses have all moved
+   since the imports. Fresh CSV exports, then:
 
-**UI debts**, each of which has cost a round trip: the project panel closes
-on every action; a 500 reads as `internal error` while the traceback sits in
-the terminal; and the register's `Invoiced prior` column now means all
-invoicing.
+   ```powershell
+   Copy-Item data\ops.db data\ops-before-resync.db
+   py tools\sync_register.py    --db data\ops.db --csv "$d\...Projects.csv"
+   py tools\import_claims.py    --db data\ops.db --invoicing ... --future ... --matrix ... --sync
+   py tools\drift_check.py      --db data\ops.db --csv "$d\...Projects.csv"
+   ```
+
+   Office expenses are one-shot, so a changed sheet means deciding whether
+   to edit in the platform or rebuild that table. Worth thinking about
+   before running anything.
+
+2. **CONFIRM THE FIGURES** against the dashboard: contract value, invoiced,
+   orders in hand, and the FY27 bottom line.
+
+3. **DEPLOY**, then **BACKUPS**. CS-OP-RUN-002 has four **[SITE]** gaps
+   needing answers when the VM appears, and `tools/offbox_sync.sh` has
+   never run anywhere. Everything above exists once, on one laptop.
+
+### Still open, none blocking
+
+- **Two projects are missing** with rows waiting: `36 Wellington St - ICN
+  Maintenance (JN-6963)` and `PDNSW - 6PSQ L13 Tenancy Access Door`.
+- **ABNs** on all 92 suppliers; one without is withheld at 47%.
+- **The iTrade job-number block**, which four `TBA` rows wait on.
+- **UI debts**: the project panel closes on every action; a 500 reads as
+  `internal error` while the traceback sits in the terminal; the register's
+  `Invoiced prior` column now means all invoicing.
 
 ---
 
@@ -651,8 +693,9 @@ cd C:\Dev\operations
 Get-ChildItem -Recurse -File | Unblock-File
 .\dev.ps1                 # serve on 5173, then sign in with Google
 .\dev.ps1 -Stale          # code AND assets, against the delivered values
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 907
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 927
 ```
 
-Fingerprints: code `b8dfd2a2da20`, assets `36bf6d2e08bd`.
-Migrations applied: `001` through `022`.
+Fingerprints: code `52fd0b92618b`, assets `faee16d54b0d`.
+Migrations applied: `001` through `023`.
+Roles: `viewer`, `operations`, `approver`, `admin`, `finance`, `payroll`.

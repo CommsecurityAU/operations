@@ -874,6 +874,44 @@ class Db:
         """
         return int(round(float(percent) * 10_000))
 
+    @staticmethod
+    def rate_amount(cents, rate_bp):
+        """A rate in hundredths of a basis point, applied once."""
+        return money.divide(cents * rate_bp, 1_000_000)
+
+    def set_fy_settings(self, entity_id, fy, rate_bp, further_cents, actor_id,
+                        note=None):
+        now = int(time.time())
+        with self._tx() as c:
+            before = c.execute(
+                "SELECT * FROM fy_settings WHERE entity_id = ? AND fy = ?",
+                (entity_id, fy)).fetchone()
+            rate = rate_bp if rate_bp is not None else (
+                before["tax_rate_bp"] if before else 250000)
+            further = further_cents if further_cents is not None else (
+                before["further_sales_cents"] if before else 0)
+            c.execute(
+                """INSERT INTO fy_settings (entity_id, fy, tax_rate_bp,
+                       further_sales_cents, note, updated_by, updated_ts)
+                   VALUES (?,?,?,?,?,?,?)
+                   ON CONFLICT (entity_id, fy) DO UPDATE SET
+                       tax_rate_bp = excluded.tax_rate_bp,
+                       further_sales_cents = excluded.further_sales_cents,
+                       note = excluded.note,
+                       updated_by = excluded.updated_by,
+                       updated_ts = excluded.updated_ts""",
+                (entity_id, fy, rate, further, note, actor_id, now))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'fy_settings','fy_settings',?,?)""",
+                (now, actor_id, str(fy),
+                 f"tax {rate / 10000}%, further sales "
+                 f"{money.format(further)}"))
+            return dict(c.execute(
+                "SELECT * FROM fy_settings WHERE entity_id = ? AND fy = ?",
+                (entity_id, fy)).fetchone())
+
     def recompute_derived(self, entity_id, actor_id, from_period_id=None):
         """Work out every derived figure, in dependency order.
 

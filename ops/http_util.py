@@ -60,8 +60,13 @@ class Router:
     default value and no way to omit it.
     """
 
-    def __init__(self):
+    def __init__(self, session_key=None):
         self._routes = []
+        # Modules that need to verify a second token -- the expense screen
+        # checks for a live re-authentication -- need the signing key. Given
+        # to the router rather than imported, because there is one key and
+        # it belongs to the process that booted.
+        self.session_key = session_key
 
     def add(self, method, pattern, fn, role):
         if role is None:
@@ -154,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------- output
     def _send(self, status, body=b"", content_type="application/json",
-              extra_headers=None):
+              extra_headers: "dict[str, str | list[str]] | None" = None):
         # Record what was ACTUALLY sent. Handlers that write their own
         # response (redirects, 204s) return None, and inferring 200 for them
         # makes the access log lie about exactly the responses you most want
@@ -169,7 +174,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Strict-Transport-Security",
                              "max-age=31536000; includeSubDomains")
         for k, v in (extra_headers or {}).items():
-            self.send_header(k, v)
+            # A list where a header legitimately repeats. `Set-Cookie` is
+            # the one that does -- signing in and elevating in the same
+            # redirect sets two -- and joining them with a comma would send
+            # one malformed cookie rather than two good ones.
+            for one in (v if isinstance(v, list) else [v]):
+                self.send_header(k, one)
         self.end_headers()
         if self.command != "HEAD" and body:
             self.wfile.write(body)

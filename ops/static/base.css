@@ -642,6 +642,62 @@ a.signin:hover { background: var(--s-2); text-decoration: none; }
 .with-add { display: flex; gap: var(--u2); align-items: center; }
 .with-add select { flex: 1 1 auto; }
 
+/* Categories down, months across. A calculated figure is set in a lighter
+ * weight: knowing which is which is the difference between checking a
+ * number and trusting it. */
+/* A link that has to look like a button: the export is a plain GET, so it
+ * is an anchor rather than a fetch -- the browser then handles the download
+ * and the Content-Disposition, which a fetch would have to reimplement. */
+a.button {
+  display: inline-flex;
+  align-items: center;
+  height: var(--h-control);
+  padding: 0 var(--u3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--t-1);
+  text-decoration: none;
+  font-size: var(--fs-small);
+}
+a.button:hover { border-color: var(--accent-dim); color: var(--accent); }
+
+table.expense-grid { font-size: var(--fs-small); }
+table.expense-grid th { white-space: nowrap; }
+table.expense-grid tr.group th {
+  background: var(--surface-2);
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+/* A group header that is also its own control. The whole cell, not a small
+ * triangle: a target you have to aim at is a target people stop using. */
+button.group-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--u2);
+  width: 100%;
+  height: auto;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.group-toggle:hover { color: var(--accent); }
+button.group-toggle .chevron {
+  width: 1em;
+  color: var(--t-2);
+  font-size: var(--fs-small);
+}
+
+table.expense-grid td.derived { color: var(--t-2); }
+table.expense-grid tfoot th {
+  border-top: 1px solid var(--line-strong);
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+.tag.is-quiet { color: var(--t-2); }
+
 select.cell-select {
   font-size: var(--fs-small);
   height: calc(var(--h-control) - 6px);

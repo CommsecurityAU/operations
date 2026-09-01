@@ -276,6 +276,45 @@ class TestTypeColoursStayQuiet(unittest.TestCase):
             self.assertNotIn("type-chip", body, f"{name} builds its own chip")
 
 
+class TestTheScreensSeeWhatTheyEdit(unittest.TestCase):
+    """A field a dialog shows and its view omits comes back BLANK and is
+    saved as blank, erasing it. `expense_line.note` did exactly that.
+
+    Checked against the VIEW rather than the table, because the view is
+    what the screen is given.
+    """
+
+    def test_the_expense_dialogs_can_see_every_field_they_edit(self):
+        import shutil
+        import sys
+        import tempfile
+        sys.path.insert(0, ROOT)
+        from ops.db import Db
+        folder = tempfile.mkdtemp()
+        try:
+            db = Db(os.path.join(folder, "o.db"),
+                    os.path.join(ROOT, "ops", "migrations"))
+            db.migrate()
+            columns = {r["name"] for r in
+                       db.query("PRAGMA table_info(v_expense_line)")}
+            db.close()
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+        read_by_screen = set()
+        for name in ("expenses.js", "expenseforms.js"):
+            read_by_screen.update(re.findall(
+                r"(?:row|line)\.([a-z_]+)", code_only(read(
+                    os.path.join(STATIC, name)))))
+        # Only the names that are line fields at all: the dialogs also read
+        # local shapes that have nothing to do with the view.
+        interesting = read_by_screen & {
+            "note", "state", "is_forecast", "rate_bp", "annual_cents",
+            "threshold_annual_cents", "category_id", "category_name",
+            "line_id", "line_name", "category_kind"}
+        self.assertEqual(sorted(interesting - columns), [],
+                         "the screen reads these and v_expense_line omits them")
+
+
 class TestNothingIsUsedUndeclared(unittest.TestCase):
     """A module-level constant used but never declared.
 
@@ -482,7 +521,7 @@ class TestBudgets(unittest.TestCase):
 
     SHELL = "main.js"
     SCREENS = ("projects.js", "claims.js", "worklist.js", "schedules.js",
-               "access.js", "procurement.js")
+               "access.js", "procurement.js", "expenses.js")
 
     def size(self, names):
         return sum(os.path.getsize(os.path.join(STATIC, n)) for n in names)

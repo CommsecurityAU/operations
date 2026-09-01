@@ -521,6 +521,461 @@ class Db:
                 (now, actor_id, "", "every procurement row cleared"))
         return True
 
+    # --------------------------------------------------- office expenses
+    def import_expense_matrix(self, entity_id, lines, months, nsw, kinds,
+                              salary_steps, actor_id):
+        """The whole matrix in one transaction.
+
+        One transaction because a half-imported expense sheet reads as a
+        business that costs less to run than it does.
+        """
+        now = int(time.time())
+        periods = {}
+        for label in months:
+            found = self.scalar("SELECT id FROM period WHERE label = ?",
+                                (label,))
+            if found:
+                periods[label] = found
+        made = {"categories": 0, "lines": 0, "amounts": 0, "salaries": 0}
+        with self._tx() as c:
+            categories = {}
+            for order, line in enumerate(lines):
+                name = line["category"]
+                # Work Cover and Payroll Tax are each two obligations under
+                # two schemes to two insurers, so they are two categories.
+                # Grouping them together gives a header that is the sum of
+                # a VIC charge and an NSW one, which is a number nobody
+                # asks for.
+                if kinds.get(name.casefold()) == "statutory":
+                    where = "NSW" if "nsw" in line["name"].lower() else "VIC"
+                    name = f"{name} ({where})"
+                if name not in categories:
+                    kind = kinds.get(line["category"].casefold(), "expense")
+                    cur = c.execute(
+                        """INSERT INTO expense_category
+                           (entity_id, name, kind, sequence, created_by,
+                            created_ts)
+                           VALUES (?,?,?,?,?,?)""",
+                        (entity_id, name, kind, len(categories), actor_id, now))
+                    categories[name] = (cur.lastrowid, kind)
+                    made["categories"] += 1
+                category_id, kind = categories[name]
+
+                rate_bp = None
+                # The rate is written in the line's own name, which is where
+                # it is maintained: `Work Cover 1.785%`.
+                import re as _re
+                found = _re.search(r"(\d+(?:\.\d+)?)\s*%?\s*$", line["name"])
+                if kind == "statutory" and found:
+                    rate_bp = int(round(float(found.group(1)) * 100))
+
+                is_forecast = 1 if "forecast" in line["name"].lower() else 0
+                state = None
+                if kind in ("wages", "super"):
+                    state = "NSW" if line["name"].casefold() in nsw else "VIC"
+                elif "nsw" in line["name"].lower():
+                    state = "NSW"
+                elif kind == "statutory":
+                    state = "VIC"
+
+                # How this line is worked out, where it is worked out at
+                # all. Super follows the person's own wages; the statutory
+                # lines follow wages plus super for their state; NSW
+                # payroll tax takes $47,000 a year off first.
+                formula = threshold = None
+                if kind == "super":
+                    formula = "percent_of_line"
+                    rate_bp = self.rate(12)
+                elif kind == "statutory":
+                    lower = line["name"].lower()
+                    if "nsw" in lower and "payroll" in lower:
+                        formula = "percent_less_annual"
+                        threshold = 4_700_000          # $47,000 a year
+                        rate_bp = self.rate(5.45)
+                    elif "nsw" in lower:
+                        # The sheet computes 0.405% while the line is
+                        # called 0.39%. Confirmed with the Ops Manager: the
+                        # LABEL is right and the sheet's rate is wrong, so
+                        # $81.27 a month becomes $78.26. The name was the
+                        # fact here, which is the opposite of the usual
+                        # direction and worth having asked.
+                        formula = "percent_of_state"
+                        rate_bp = self.rate(0.39)
+                    elif "payroll" in lower:
+                        formula = "percent_of_state"
+                        rate_bp = self.rate(4.85)
+                    else:
+                        formula = "percent_of_state"
+                        rate_bp = self.rate(1.785)
+                cur = c.execute(
+                    """INSERT INTO expense_line
+                       (entity_id, category_id, name, state, is_forecast,
+                        rate_bp, formula, threshold_annual_cents, sequence,
+                        created_by, created_ts)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (entity_id, category_id, line["name"], state, is_forecast,
+                     rate_bp, formula, threshold, order, actor_id, now))
+                line_id = cur.lastrowid
+                if kind == "super":
+                    # A person's super follows THEIR wages, matched on the
+                    # name the sheet uses for both.
+                    c.execute(
+                        """UPDATE expense_line SET basis_line_id = (
+                               SELECT w.id FROM expense_line w
+                               JOIN expense_category wc ON wc.id = w.category_id
+                               WHERE wc.kind = 'wages' AND w.entity_id = ?
+                                 AND w.name = ? COLLATE NOCASE)
+                           WHERE id = ?""",
+                        (entity_id, line["name"], line_id))
+                made["lines"] += 1
+
+                steps = salary_steps(line["amounts"], months) \
+                    if kind == "wages" else None
+                if steps:
+                    for label, annual in steps:
+                        if label not in periods:
+                            continue
+                        c.execute(
+                            """INSERT INTO salary_revision
+                               (expense_line_id, from_period_id, annual_cents,
+                                created_by, created_ts)
+                               VALUES (?,?,?,?,?)""",
+                            (line_id, periods[label], annual, actor_id, now))
+                        made["salaries"] += 1
+
+                for label, cents in line["amounts"].items():
+                    if label not in periods:
+                        continue
+                    # A figure the platform can work out is marked as
+                    # such, so recomputing OWNS it. Marking everything
+                    # `entered` meant the first recompute changed nothing
+                    # and the sheet's stale payroll tax survived the
+                    # import.
+                    source = ("salary" if steps
+                              else "rate" if formula
+                              else "entered")
+                    c.execute(
+                        """INSERT INTO expense_amount
+                           (expense_line_id, period_id, amount_cents, source,
+                            created_by, created_ts)
+                           VALUES (?,?,?,?,?,?)""",
+                        (line_id, periods[label], cents, source, actor_id, now))
+                    made["amounts"] += 1
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'expense_import','expense_line',?,?)""",
+                (now, actor_id, "",
+                 f"{made['lines']} line(s), {made['amounts']} monthly "
+                 f"figure(s)"))
+        return made
+
+    #: Everything the API will accept. A field missing here is a field the
+    #: API takes and the database drops -- accepted-and-ignored, which is
+    #: worse than refused because the screen says it worked. It happened
+    #: with `project_id` on a procurement line and again with
+    #: `threshold_annual_cents` here, so `test_gates` now checks both.
+    EXPENSE_LINE_MUTABLE = ("category_id", "name", "state", "is_forecast",
+                            "rate_bp", "formula", "basis_line_id",
+                            "threshold_annual_cents", "note", "is_active",
+                            "sequence")
+
+    def record_salary_view(self, line_id, actor_id):
+        """Who looked at whose pay, and when.
+
+        A control that leaves no trace is a control nobody can check was
+        working.
+        """
+        now = int(time.time())
+        name = self.scalar("SELECT name FROM expense_line WHERE id = ?",
+                           (line_id,))
+        with self._tx() as c:
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'salary_view','expense_line',?,?)""",
+                (now, actor_id, str(line_id), name or ""))
+        return True
+
+    def create_expense_category(self, entity_id, name, kind, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            nxt = c.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM expense_category "
+                "WHERE entity_id = ?", (entity_id,)).fetchone()[0]
+            cur = c.execute(
+                """INSERT INTO expense_category
+                   (entity_id, name, kind, sequence, created_by, created_ts)
+                   VALUES (?,?,?,?,?,?)""",
+                (entity_id, name, kind, nxt, actor_id, now))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'expense_category_create','expense_category',?,?)""",
+                (now, actor_id, str(cur.lastrowid), f"{name} ({kind})"))
+            return dict(c.execute("SELECT * FROM expense_category WHERE id = ?",
+                                  (cur.lastrowid,)).fetchone())
+
+    def create_expense_line(self, fields, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            nxt = c.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM expense_line "
+                "WHERE category_id = ?", (fields["category_id"],)).fetchone()[0]
+            cur = c.execute(
+                """INSERT INTO expense_line
+                   (entity_id, category_id, name, state, is_forecast, rate_bp,
+                    sequence, note, created_by, created_ts)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (fields["entity_id"], fields["category_id"], fields["name"],
+                 fields.get("state"), fields.get("is_forecast", 0),
+                 fields.get("rate_bp"), nxt, fields.get("note"), actor_id, now))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'expense_line_create','expense_line',?,?)""",
+                (now, actor_id, str(cur.lastrowid), fields["name"]))
+            return dict(c.execute("SELECT * FROM v_expense_line WHERE line_id = ?",
+                                  (cur.lastrowid,)).fetchone())
+
+    def update_expense_line(self, line_id, changes, actor_id):
+        now = int(time.time())
+        with self._tx() as c:
+            before = c.execute("SELECT * FROM expense_line WHERE id = ?",
+                               (line_id,)).fetchone()
+            if before is None:
+                return None
+            applied = []
+            for key in self.EXPENSE_LINE_MUTABLE:
+                if key not in changes or before[key] == changes[key]:
+                    continue
+                c.execute(f"UPDATE expense_line SET {key} = ? WHERE id = ?",
+                          (changes[key], line_id))
+                applied.append(key)
+                c.execute(
+                    """INSERT INTO audit_log (ts, actor_user_id, action,
+                           target_type, target_id, detail)
+                       VALUES (?,?,'expense_line_update','expense_line',?,?)""",
+                    (now, actor_id, str(line_id),
+                     f"{key}: {before[key]!r} -> {changes[key]!r}"))
+            return {"line": dict(c.execute(
+                "SELECT * FROM v_expense_line WHERE line_id = ?",
+                (line_id,)).fetchone()), "changed": sorted(applied)}
+
+    def set_expense_amount(self, line_id, period_id, cents, actor_id,
+                           reason=None):
+        """Setting it to nothing removes it: a month a line does not run in
+        should be absent, not zero."""
+        now = int(time.time())
+        with self._tx() as c:
+            found = c.execute(
+                """SELECT id, amount_cents FROM expense_amount
+                   WHERE expense_line_id = ? AND period_id = ?""",
+                (line_id, period_id)).fetchone()
+            if not cents:
+                if found:
+                    c.execute(
+                        """INSERT INTO expense_amount_revision
+                           (expense_line_id, period_id, old_cents, new_cents,
+                            reason, changed_by, changed_ts)
+                           VALUES (?,?,?,NULL,?,?,?)""",
+                        (line_id, period_id, found["amount_cents"], reason,
+                         actor_id, now))
+                    c.execute("DELETE FROM expense_amount WHERE id = ?",
+                              (found["id"],))
+                return {"removed": bool(found)}
+            if found:
+                c.execute(
+                    """INSERT INTO expense_amount_revision
+                       (expense_line_id, period_id, old_cents, new_cents,
+                        reason, changed_by, changed_ts)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (line_id, period_id, found["amount_cents"], cents, reason,
+                     actor_id, now))
+                c.execute(
+                    "UPDATE expense_amount SET amount_cents = ?, source = "
+                    "'entered' WHERE id = ?", (cents, found["id"]))
+                return {"id": found["id"], "amount_cents": cents}
+            cur = c.execute(
+                """INSERT INTO expense_amount
+                   (expense_line_id, period_id, amount_cents, source,
+                    created_by, created_ts)
+                   VALUES (?,?,?, 'entered', ?,?)""",
+                (line_id, period_id, cents, actor_id, now))
+            return {"id": cur.lastrowid, "amount_cents": cents}
+
+    def set_salary(self, line_id, from_period_id, annual_cents, actor_id,
+                   note=None):
+        """A salary is the fact and the months are its consequence, so every
+        month from this one onward is recomputed. Months carrying an ENTERED
+        figure are left alone: somebody typed those on purpose."""
+        now = int(time.time())
+        start = self.scalar("SELECT month_start FROM period WHERE id = ?",
+                            (from_period_id,))
+        with self._tx() as c:
+            c.execute(
+                """INSERT INTO salary_revision
+                   (expense_line_id, from_period_id, annual_cents, note,
+                    created_by, created_ts)
+                   VALUES (?,?,?,?,?,?)
+                   ON CONFLICT (expense_line_id, from_period_id)
+                   DO UPDATE SET annual_cents = excluded.annual_cents,
+                                 note = excluded.note""",
+                (line_id, from_period_id, annual_cents, note, actor_id, now))
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'salary_set','expense_line',?,?)""",
+                (now, actor_id, str(line_id),
+                 f"{money.format(annual_cents)} a year from period "
+                 f"{from_period_id}"))
+        # Which revision governs each month: the latest one at or before it.
+        touched = 0
+        for period in self.query(
+                """SELECT id, month_start FROM period WHERE month_start >= ?
+                   ORDER BY month_start""", (start,)):
+            annual = self.scalar(
+                """SELECT r.annual_cents FROM salary_revision r
+                   JOIN period p ON p.id = r.from_period_id
+                   WHERE r.expense_line_id = ? AND p.month_start <= ?
+                   ORDER BY p.month_start DESC LIMIT 1""",
+                (line_id, period["month_start"]))
+            if annual is None:
+                continue
+            monthly = money.divide(annual, 12)
+            with self._tx() as c:
+                existing = c.execute(
+                    """SELECT id, source FROM expense_amount
+                       WHERE expense_line_id = ? AND period_id = ?""",
+                    (line_id, period["id"])).fetchone()
+                if existing and existing["source"] != "salary":
+                    continue
+                if existing:
+                    c.execute(
+                        "UPDATE expense_amount SET amount_cents = ? WHERE id = ?",
+                        (monthly, existing["id"]))
+                else:
+                    c.execute(
+                        """INSERT INTO expense_amount
+                           (expense_line_id, period_id, amount_cents, source,
+                            created_by, created_ts)
+                           VALUES (?,?,?, 'salary', ?,?)""",
+                        (line_id, period["id"], monthly, actor_id, now))
+            touched += 1
+        return {"annual_cents": annual_cents, "months_updated": touched}
+
+    @staticmethod
+    def rate(percent):
+        """A percentage as hundredths of a basis point: 1.785% is 17850.
+
+        Written as a function because writing it by hand is how `0.405%`
+        became `405_00` and a $81.27 Work Cover charge came out at $812.70.
+        Underscores group digits; they do not check them.
+        """
+        return int(round(float(percent) * 10_000))
+
+    def recompute_derived(self, entity_id, actor_id, from_period_id=None):
+        """Work out every derived figure, in dependency order.
+
+        Wages come from salaries, super follows wages, and the statutory
+        lines follow wages plus super. Doing it in one pass in that order is
+        why the order is written down here rather than inferred: a rate
+        applied before super was recomputed would be a rate on last month's
+        payroll.
+
+        The sheet this replaces had VIC payroll tax frozen at $4,255.07
+        while wages rose in Oct-26 -- $792.16 a month, $16,635.36 across the
+        two years it covers. A figure that has to be dragged across a row by
+        hand is a figure that eventually is not.
+        """
+        now = int(time.time())
+        start = self.scalar("SELECT month_start FROM period WHERE id = ?",
+                            (from_period_id,)) if from_period_id else None
+        periods = self.query(
+            """SELECT id, month_start FROM period
+               WHERE (? IS NULL OR month_start >= ?) ORDER BY month_start""",
+            (start, start))
+        lines = self.query(
+            """SELECT * FROM v_expense_line
+               WHERE entity_id = ? AND is_active = 1""", (entity_id,))
+        by_formula = {"percent_of_line": [], "percent_of_state": [],
+                      "percent_less_annual": []}
+        for line in lines:
+            if line["formula"] in by_formula:
+                by_formula[line["formula"]].append(line)
+        touched = 0
+        for period in periods:
+            # 1. Super, from each person's own wages.
+            for line in by_formula["percent_of_line"]:
+                if not line["basis_line_id"] or not line["rate_bp"]:
+                    continue
+                base = self.scalar(
+                    """SELECT amount_cents FROM expense_amount
+                       WHERE expense_line_id = ? AND period_id = ?""",
+                    (line["basis_line_id"], period["id"])) or 0
+                touched += self._derive(line["line_id"], period["id"],
+                                        money.divide(base * line["rate_bp"],
+                                                     1_000_000),
+                                        actor_id, now)
+            # 2. The statutory lines, on wages plus super for their state.
+            for kind in ("percent_of_state", "percent_less_annual"):
+                for line in by_formula[kind]:
+                    if not line["rate_bp"]:
+                        continue
+                    base = self.scalar(
+                        """SELECT base_cents FROM v_wage_base
+                           WHERE entity_id = ? AND period_id = ? AND state = ?""",
+                        (entity_id, period["id"],
+                         line["state"] or "VIC")) or 0
+                    if kind == "percent_of_state":
+                        value = money.divide(base * line["rate_bp"], 1_000_000)
+                    else:
+                        annual = base * 12 - (line["threshold_annual_cents"] or 0)
+                        value = money.divide(
+                            money.divide(max(0, annual) * line["rate_bp"],
+                                         1_000_000), 12)
+                    touched += self._derive(line["line_id"], period["id"],
+                                            value, actor_id, now)
+        if touched:
+            with self._tx() as c:
+                c.execute(
+                    """INSERT INTO audit_log (ts, actor_user_id, action,
+                           target_type, target_id, detail)
+                       VALUES (?,?,'expense_recompute','expense_line',?,?)""",
+                    (now, actor_id, "", f"{touched} derived figure(s)"))
+        return touched
+
+    def _derive(self, line_id, period_id, cents, actor_id, now):
+        """Write a derived figure, leaving anything typed alone."""
+        with self._tx() as c:
+            found = c.execute(
+                """SELECT id, amount_cents, source FROM expense_amount
+                   WHERE expense_line_id = ? AND period_id = ?""",
+                (line_id, period_id)).fetchone()
+            if found and found["source"] == "entered":
+                # Somebody typed that on purpose.
+                return 0
+            if not cents:
+                if found:
+                    c.execute("DELETE FROM expense_amount WHERE id = ?",
+                              (found["id"],))
+                    return 1
+                return 0
+            if found:
+                if found["amount_cents"] == cents:
+                    return 0
+                c.execute(
+                    "UPDATE expense_amount SET amount_cents = ?, source = 'rate' "
+                    "WHERE id = ?", (cents, found["id"]))
+            else:
+                c.execute(
+                    """INSERT INTO expense_amount
+                       (expense_line_id, period_id, amount_cents, source,
+                        created_by, created_ts)
+                       VALUES (?,?,?, 'rate', ?,?)""",
+                    (line_id, period_id, cents, actor_id, now))
+            return 1
+
     def create_supplier_quote(self, fields, actor_id):
         now = int(time.time())
         with self._tx() as c:

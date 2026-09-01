@@ -29,6 +29,7 @@ from ops.modules import procurement as procurement_module
 from ops.modules import projects as projects_module
 from ops.modules import access as access_module
 from ops.modules import claimplan as claimplan_module
+from ops.modules import expenses as expenses_module
 from ops.modules import schedules as schedules_module
 from ops.modules import worklist as worklist_module
 from ops.db import Db
@@ -49,7 +50,7 @@ MIME = {
 }
 MODULES = [projects_module, worklist_module, claims_module,
            schedules_module, claimplan_module, access_module,
-           procurement_module]   # §6. Explicit, in order.
+           procurement_module, expenses_module]   # §6. Explicit, in order.
 CERT_WARN_DAYS = 30
 
 
@@ -238,7 +239,7 @@ def check_cert_expiry(cert_path, warn_days=CERT_WARN_DAYS, now=None):
 
 # ----------------------------------------------------------------- routes
 def build_router(db, oidc, key, cfg):
-    r = Router()
+    r = Router(session_key=key)
 
     def _send_static(handler, name):
         """Static files, no-store (§3). The asset set is tiny and internal,
@@ -299,6 +300,20 @@ def build_router(db, oidc, key, cfg):
                       extra_headers={"Location": url})
         return None
 
+    @r.route("/auth/elevate", role="viewer")
+    def elevate(handler, user):
+        """Re-authenticate, to see something that costs something.
+
+        There is no password in this system -- sign-in is Google -- so
+        demanding one means demanding a FRESH Google authentication.
+        `prompt=login` makes Google ask again rather than waving through
+        the live session.
+        """
+        url, _state = oidc.start(force_login=True)
+        handler._send(302, b"", content_type="text/plain",
+                      extra_headers={"Location": url})
+        return None
+
     @r.route("/auth/callback", role="public")
     def callback(handler, user):
         from urllib.parse import parse_qs, urlparse
@@ -308,7 +323,7 @@ def build_router(db, oidc, key, cfg):
         if not code or not state:
             raise HttpError(400, "missing code or state")
         try:
-            oidc.consume_state(state)
+            kind = oidc.consume_state(state)
             claims = oidc.claims(oidc.exchange(code))
         except auth.AuthError as e:
             # The reason is logged; the browser is told only that it failed.
@@ -316,9 +331,20 @@ def build_router(db, oidc, key, cfg):
             raise HttpError(403, "sign-in refused")
         u = auth.sign_in(db, claims)
         token = auth.mint_session(key, u["id"], u["token_version"])
-        handler._send(302, b"", content_type="text/plain", extra_headers={
-            "Location": "/",
-            "Set-Cookie": auth.cookie_header(token, cfg.tls)})
+        # A SECOND cookie with its own short life when this was an
+        # elevation. Two `Set-Cookie` headers need two values, and joining
+        # them with a comma would send one malformed cookie rather than two
+        # good ones -- so the sender takes a list here.
+        cookies: list[str] = [auth.cookie_header(token, cfg.tls)]
+        if kind == "elevate":
+            cookies.append(auth.elevation_cookie_header(
+                auth.mint_elevation(key, u["id"]), cfg.tls))
+        headers: dict[str, str | list[str]] = {
+            "Location": "/#expenses" if kind == "elevate" else "/",
+            "Set-Cookie": cookies,
+        }
+        handler._send(302, b"", content_type="text/plain",
+                      extra_headers=headers)
         return None
 
     @r.route("/logout", role="public", method="POST")

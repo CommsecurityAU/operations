@@ -532,32 +532,115 @@ Paid reads $34,415.74.
 
 ---
 
+## STP-4, 29 August — office expenses
+
+**Both sides of the business are now in one place.** Contract, claims and
+retention on one side; suppliers, orders, the expense forecast and now
+payroll and overhead on the other.
+
+    projects              65      contract      $7,233,942.00
+    suppliers             94      invoiced      $4,129,345.61
+    procurement lines     87      committed       $160,501.20
+    expense lines         54      estimated     $1,567,877.00
+                                  office FY27   $1,774,311.54
+
+**A salary is the fact and the months are its consequence** (ADR-47). The
+sheet stored eighteen monthly figures per person, so a rise had to be typed
+twelve times. Now a salary revision carries an effective month, super is 12%
+of that person's wages, and Work Cover and payroll tax are a rate on wages
+plus super for their state. Change one salary and five other lines follow.
+
+**`finance` is a fifth role** (ADR-46), implied by nothing including admin.
+These figures are wages.
+
+---
+
+## What computing it found
+
+**Three errors in the sheet, none of which anyone had noticed.**
+
+1. **VIC payroll tax froze** when wages rose in Oct-26 while Work Cover
+   moved with them: **$792.16 a month, $16,635.36** across the two years
+   shown.
+2. **NSW Work Cover computed 0.405%** on a line called 0.39%. Here — unlike
+   the `#F26722` legend or the `Phase` column — **the label was the correct
+   one**, which is why it was worth asking rather than assuming the usual
+   direction.
+3. **The sheet's own total row exceeds the sum of its own rows** by a
+   constant $526.39 before October and $1,416.56 after.
+
+A figure that has to be dragged across a row by hand is a figure that
+eventually is not.
+
+---
+
+## The same defect, three times in one week
+
+A field the API accepts and the database drops. **Accepted-and-ignored is
+worse than refused, because the screen says it worked.**
+
+- `project_id` on a procurement line — moving a cost to the right job
+  appeared to work and did nothing.
+- `threshold_annual_cents` on an expense line, days later, in the module
+  written after the first.
+- `expense_line.note` — in the table, accepted by the API, **missing from
+  the view**, so the dialog would have shown it blank and saved blank.
+
+Three routes to the same outcome. There are now gates for all three: the
+mutable list against what each module offers, and what the dialogs read
+against what the view provides. Each was verified by breaking it.
+
+---
+
+## Access, and what it costs to see a salary
+
+**Six roles now** (ADR-49). `finance` opens the expense screen — the rent,
+the subscriptions, the total cost of running the business, which reporting
+will need. `payroll` is what shows individual salaries, and it is a separate
+grant implied by nothing, including admin.
+
+| To do this | Needs |
+|---|---|
+| Open Expenses | `finance` |
+| See or set a salary | `payroll` **+** re-authenticated within 15 minutes |
+| Export with salaries | the same |
+| Grant either | `admin` |
+
+**A salary is withheld, not hidden** (ADR-50). `annual_cents` is not in the
+response at all, so it is not in the network tab either — hiding a figure in
+the interface hides it from nobody with the developer tools open. There is
+no password in this platform, so demanding one means demanding a fresh
+Google authentication; `prompt=login` gets it. Every salary viewed is
+audited.
+
+**Categories start collapsed**, so signing in to finance shows what the
+business costs rather than eleven people's monthly pay.
+
+---
+
 ## Resume point
 
-**STP-0 through STP-3 are built**, and the platform now holds both sides of
-a project's money: contract, claims, retention and claim plans on one side;
-suppliers, orders, invoices and the expense forecast on the other.
+**STP-0 through STP-4 are built.** Every importer runs clean from empty and
+the three sides meet:
 
-1. **DEPLOY.** Waiting on infrastructure. 204 claims, 92 suppliers, 58
-   procurement lines, 29 estimates and every correction made this week —
-   none of it backed up off the laptop.
-2. **Two projects are missing** and their rows are waiting: `36 Wellington
-   St - ICN Maintenance (JN-6963)` from the procurement register, and
-   `PDNSW - 6PSQ L13 Tenancy Access Door` from the expense flags — two
-   cells, $9,051.29. Both need a job-code decision (ADR-28).
-3. **ABNs**: all 92 suppliers are missing one, and a supplier without an
-   ABN is withheld at 47%.
-4. **`Kenrone` defaults to USD** on my inference from its register rows.
+    claims FY27          $3,529,018.00
+    procurement FY27     $1,726,158.20
+    office FY27          $1,774,311.54
+
+1. **DEPLOY.** Still waiting on infrastructure, and now the most valuable
+   thing in the building sits on one laptop.
+2. **STP-5, the dashboard.** Everything it needs exists. It is the first
+   screen that can show a MARGIN, and the point of the whole exercise.
+3. **Two projects are missing** and rows are waiting on both: `36
+   Wellington St - ICN Maintenance (JN-6963)` and `PDNSW - 6PSQ L13 Tenancy
+   Access Door`. Each needs a job-code decision (ADR-28).
+4. **ABNs** on all 92 suppliers; one without is withheld at 47%.
 5. **The iTrade job-number block**, which four `TBA` rows wait on.
 
-**Then STP-4**, office expenses and payroll — and **STP-5**, the dashboard,
-which is now the first screen that could show a MARGIN: contract, invoiced,
-retention held, committed cost and forecast cost all exist in one place.
-
-**UI debts, each of which has cost a round trip:** the project panel closes
-on every action so the outcome is never visible where it was pressed; a 500
-reads as `internal error` while the traceback sits in the terminal; and the
-register's `Invoiced prior` column now means all invoicing, not prior.
+**UI debts**, each of which has cost a round trip: the project panel closes
+on every action; a 500 reads as `internal error` while the traceback sits in
+the terminal; and the register's `Invoiced prior` column now means all
+invoicing.
 
 ---
 
@@ -565,11 +648,11 @@ register's `Invoiced prior` column now means all invoicing, not prior.
 
 ```powershell
 cd C:\Dev\operations
-Get-ChildItem -Recurse -File | Unblock-File    # after any copy
+Get-ChildItem -Recurse -File | Unblock-File
 .\dev.ps1                 # serve on 5173, then sign in with Google
 .\dev.ps1 -Stale          # code AND assets, against the delivered values
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 834
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 907
 ```
 
-Fingerprints: code `cfd67c859c30`, assets `945b88180793`.
-Migrations applied: `001` through `017`.
+Fingerprints: code `b8dfd2a2da20`, assets `36bf6d2e08bd`.
+Migrations applied: `001` through `022`.

@@ -135,6 +135,71 @@ def verify_session(key, token, now=None):
     return payload
 
 
+#: How long a re-authentication is worth. Short, because the point of it is
+#: that seeing someone's salary is a deliberate act rather than a state you
+#: are left in.
+ELEVATION_TTL = 15 * 60
+ELEVATION_COOKIE = "ops_elevated"
+
+
+def mint_elevation(key, user_id, now=None, ttl=ELEVATION_TTL):
+    """A SEPARATE token, not a flag on the session.
+
+    A flag would mean re-minting the session cookie, and a session that
+    changes shape depending on what you last looked at is a session that is
+    hard to reason about. This one expires on its own and its absence is
+    the normal state.
+    """
+    now = int(time.time() if now is None else now)
+    body = json.dumps({"kind": "elevation", "sub": int(user_id),
+                       "exp": now + ttl},
+                      separators=(",", ":"), sort_keys=True).encode()
+    sig = hmac.new(key, body, hashlib.sha256).digest()
+    return f"{_b64e(body)}.{_b64e(sig)}"
+
+
+def verify_elevation(key, token, user_id, now=None):
+    """True only for a live elevation belonging to THIS user."""
+    now = int(time.time() if now is None else now)
+    if not token or token.count(".") != 1:
+        return False
+    body_b64, sig_b64 = token.split(".")
+    try:
+        body, sig = _b64d(body_b64), _b64d(sig_b64)
+    except Exception:
+        return False
+    if not hmac.compare_digest(
+            sig, hmac.new(key, body, hashlib.sha256).digest()):
+        return False
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return False
+    return (payload.get("kind") == "elevation"
+            and int(payload.get("sub", -1)) == int(user_id)
+            and int(payload.get("exp", 0)) > now)
+
+
+def elevation_cookie_header(token, tls_enabled, ttl=ELEVATION_TTL):
+    parts = [f"{ELEVATION_COOKIE}={token}", "HttpOnly", "SameSite=Lax",
+             "Path=/", f"Max-Age={ttl}"]
+    if tls_enabled:
+        parts.append("Secure")
+    return "; ".join(parts)
+
+
+def clear_elevation_header():
+    return f"{ELEVATION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
+
+
+def read_named_cookie(header_value, name):
+    for part in (header_value or "").split(";"):
+        key, _, value = part.strip().partition("=")
+        if key == name:
+            return value
+    return None
+
+
 def cookie_header(token, tls_enabled, ttl=SESSION_TTL):
     parts = [f"{COOKIE_NAME}={token}", "HttpOnly", "SameSite=Lax", "Path=/",
              f"Max-Age={ttl}"]
@@ -192,11 +257,18 @@ class Oidc:
         self._states = {}
 
     # -- step 1 -------------------------------------------------------
-    def start(self, now=None):
-        """Returns (url, state). State is single use and time-boxed."""
+    def start(self, now=None, force_login=False):
+        """Returns (url, state). State is single use and time-boxed.
+
+        `force_login` sends `prompt=login`, which makes Google re-ask even
+        though the browser has a live Google session. Used for elevation:
+        seeing a salary should cost something.
+        """
         now = time.time() if now is None else now
         state = pysecrets.token_urlsafe(32)
-        self._states[state] = now
+        # The kind travels WITH the state, so the callback cannot be talked
+        # into treating an ordinary sign-in as an elevation.
+        self._states[state] = (now, "elevate" if force_login else "signin")
         self._expire_states(now)
         params = {
             "client_id": self.client_id,
@@ -205,21 +277,30 @@ class Oidc:
             "scope": SCOPE,
             "state": state,
             "hd": self.hosted_domain,
-            "prompt": "select_account",
+            # `login` where a re-authentication is being demanded: Google
+            # then asks for the password again rather than waving through a
+            # live session, which is the whole point of an elevation.
+            "prompt": "login" if force_login else "select_account",
         }
         return f"{AUTH_ENDPOINT}?{urllib.parse.urlencode(params)}", state
 
     def _expire_states(self, now, ttl=600):
-        for s, born in list(self._states.items()):
+        for s, (born, _kind) in list(self._states.items()):
             if now - born > ttl:
                 del self._states[s]
 
     def consume_state(self, state, now=None):
+        """Returns what the state was FOR: `signin` or `elevate`.
+
+        Returned rather than assumed, so the callback cannot be persuaded
+        to treat an ordinary sign-in as a re-authentication.
+        """
         now = time.time() if now is None else now
         self._expire_states(now)
         if state not in self._states:
             raise AuthError("invalid or reused state")
-        del self._states[state]          # single use, burned on sight
+        _born, kind = self._states.pop(state)   # single use, burned on sight
+        return kind
 
     # -- step 2 -------------------------------------------------------
     def exchange(self, code, opener=None):
@@ -334,7 +415,13 @@ def authorise(db, key, handler, role, now=None):
     return user
 
 
-ROLES = ("viewer", "operations", "approver", "admin")
+#: MUST match the CHECK on `user_entity_role.role` and the list the access
+#: module offers. Three places is two too many, so the guardrail in
+#: `test_gates.py` asserts they agree -- adding `finance` in two of the
+#: three produced `unknown role 'finance'` from a route that had already
+#: been granted it.
+ROLES = ("viewer", "operations", "approver", "admin", "finance",
+         "payroll")
 
 
 def has_role(user, role):

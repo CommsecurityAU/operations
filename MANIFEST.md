@@ -1,6 +1,6 @@
 # MANIFEST — where every file goes
 
-**As at:** 28 August 2026 · **834 tests** · pyright --strict clean
+**As at:** 29 August 2026 · **907 tests** · pyright --strict clean
 
 The `repo/` folder mirrors `C:\Dev\operations` exactly. Copy it over the top
 and the paths land correctly — no guessing which `main` is which.
@@ -59,7 +59,12 @@ C:\Dev\operations\
 │   │   ├── 014_register_state.sql     what the sheet said
 │   │   ├── 015_stated_state.sql       a state with no date behind it
 │   │   ├── 016_estimates.sql          an estimate is not a commitment (ADR-43)
-│   │   └── 017_paid_delivered.sql     one definition of paid (ADR-45)
+│   │   ├── 017_paid_delivered.sql     one definition of paid (ADR-45)
+│   │   ├── 018_contract_default.sql   N-1: contract from purchase order
+│   │   ├── 019_invoiced_fallback.sql  N-1: invoiced without claims
+│   │   ├── 020_finance_role.sql       a role for wages (ADR-46)
+│   │   ├── 021_office_expenses.sql    salaries, rates, months (ADR-47)
+│   │   └── 022_payroll_role.sql       salaries are a separate grant (ADR-49)
 │   ├── modules/                       §6 FEATURE MODULES
 │   │   ├── __init__.py
 │   │   ├── projects.py                register CRUD, validation, routes
@@ -68,7 +73,8 @@ C:\Dev\operations\
 │   │   ├── schedules.py               recurring claims, renewals
 │   │   ├── claimplan.py               items, allocations, generation
 │   │   ├── access.py                  roles by entity
-│   │   └── procurement.py             the buying register
+│   │   ├── procurement.py             the buying register
+│   │   └── expenses.py                what the business costs to run
 │   └── static/                        THE BROWSER CODE
 │       ├── index.html                 shell
 │       ├── tokens.css                 the ONLY colour/type/spacing literals
@@ -116,7 +122,8 @@ C:\Dev\operations\
     ├── test_procurement.py            dates, states, FX at the extended total
     ├── test_procurement_api.py        editing everything over HTTP
     ├── test_import_suppliers.py       re-runnable, never destructive
-    └── test_import_estimates.py       estimates apart from commitments
+    ├── test_import_estimates.py       estimates apart from commitments
+    └── test_expenses.py               salaries, rates, and who may look
     ├── test_restore.py                pre-flight and restore ordering
     └── test_secrets.py                store, CLI, no-fallback
 ```
@@ -133,11 +140,11 @@ secrets, TLS. `.gitignore` covers it.
 
 ```powershell
 cd C:\Dev\operations
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 834 OK
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 907 OK
 .\dev.ps1 -Stale                                             # running == disk?
 ```
 
-If the count is below 834, a test file did not land. If `-Stale` says STALE,
+If the count is below 907, a test file did not land. If `-Stale` says STALE,
 restart the server — Python loads a module once, so a running process can be
 several edits behind the working tree while every test passes.
 

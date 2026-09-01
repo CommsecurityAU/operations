@@ -184,6 +184,70 @@ class TestStaticDirectoryHoldsAssetsOnly(unittest.TestCase):
         self.assertNotIn('".py"', body.split("MIME = {")[1].split("}")[0])
 
 
+class TestOneListOfRoles(unittest.TestCase):
+    """The roles are written down in three places: the CHECK constraint on
+    `user_entity_role`, `auth.ROLES`, and the list the access module
+    offers. Adding `finance` to two of the three produced `unknown role
+    'finance'` from a route that had already been granted it -- a 401 for a
+    user who was, by every other account, authorised."""
+
+    def test_auth_and_the_access_module_agree(self):
+        from ops import auth
+        from ops.modules import access
+        self.assertEqual(sorted(auth.ROLES), sorted(access.ROLES))
+
+    def test_the_schema_agrees(self):
+        # The NEWEST migration carrying the CHECK, not a fixed filename:
+        # adding a role rebuilds the table again, and pinning `020` here
+        # would make this gate assert against a schema two roles out of
+        # date.
+        folder = os.path.join(ROOT, "ops", "migrations")
+        sql = ""
+        for name in sorted(os.listdir(folder), reverse=True):
+            with open(os.path.join(folder, name), encoding="utf-8") as f:
+                body = f.read()
+            if "CHECK (role IN" in body:
+                sql = body
+                break
+        self.assertTrue(sql, "no migration defines the role CHECK")
+        found = re.search(r"role\s+TEXT\s+NOT NULL CHECK \(role IN \(([^)]*)\)",
+                          sql, re.S)
+        self.assertIsNotNone(found, "no CHECK on role in the newest rebuild")
+        from ops import auth
+        in_schema = sorted(
+            part.strip().strip("'") for part in found.group(1).split(","))
+        self.assertEqual(in_schema, sorted(auth.ROLES))
+
+
+class TestNothingIsAcceptedAndIgnored(unittest.TestCase):
+    """A field the API accepts and the database drops is worse than one it
+    refuses: the screen says it worked.
+
+    It happened twice. `project_id` on a procurement line -- moving a cost
+    to the right job appeared to succeed and did nothing. Then
+    `threshold_annual_cents` on an expense line, the same week, in the
+    module written to avoid it.
+    """
+
+    def test_a_procurement_line_writes_what_the_api_takes(self):
+        from ops.db import Db
+        from ops.modules import procurement
+        offered = set(procurement.DATE_FIELDS) | {
+            "project_id", "supplier_id", "supplier_po_id",
+            "supplier_quote_id", "supplier_invoice_id", "period_id",
+            "item", "description", "note", "quantity", "currency",
+            "unit_cost_cents", "total_cents", "cancel_reason",
+            "stated_state", "is_estimate"}
+        self.assertEqual(sorted(offered - set(Db.LINE_MUTABLE)), [])
+
+    def test_an_expense_line_writes_what_the_api_takes(self):
+        from ops.db import Db
+        offered = {"category_id", "name", "state", "is_forecast", "rate_bp",
+                   "threshold_annual_cents", "note", "is_active"}
+        self.assertEqual(sorted(offered - set(Db.EXPENSE_LINE_MUTABLE)), [])
+
+
+
 class TestFilesAreWhereTheyBelong(unittest.TestCase):
     """Misplaced files have cost real time twice: `ops/static/main.py` (the
     app entrypoint copied into the PUBLISHED asset directory) and

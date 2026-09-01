@@ -17,7 +17,13 @@ from ops.db import Db
 from ops.http_util import HttpError, Router
 
 ROLE_ADMIN = "admin"
-ROLES = ("viewer", "operations", "approver", "admin")
+#: `finance` opens the office-expense screen -- the rent, the
+#: subscriptions, the total cost of running the business. `payroll` is what
+#: shows individual salaries, and it is a SEPARATE grant: somebody can see
+#: that wages cost $96,250.01 in July without seeing what Justin earns.
+#: Neither implies the other, and admin implies neither.
+ROLES = ("viewer", "operations", "approver", "admin", "finance",
+         "payroll")
 
 
 def entity_ids(user: dict[str, Any]) -> list[int]:

@@ -218,6 +218,19 @@ def create_missing(db, register, names, actor_id):
     return made
 
 
+def unknown_statuses(db, changes):
+    """Statuses the register uses and the platform does not know.
+
+    Caught HERE, not at the database. `Lost` arrived in the register, the
+    apply got as far as one project and raised on a CHECK, leaving the rest
+    unattempted -- an importer must fail before it writes (ADR-42).
+    """
+    known = {r["code"] for r in db.query("SELECT code FROM project_status")}
+    return sorted({
+        row[3] for row in changes
+        if row[2] == "status" and row[3] not in known})
+
+
 def apply_text(db, changes, actor_id):
     for project_id, _name, column, _old, new in changes:
         db.update_project(project_id, {column: new}, actor_id)
@@ -368,6 +381,18 @@ def main(argv=None):
                 RETENTION_RATE_BP if new_bp else None,
                 RETENTION_POLICY if new_bp else None,
                 RETENTION_SPLIT_BP if new_bp else None, actor_id)
+        unknown = unknown_statuses(db, text)
+        if unknown:
+            print("\n  ABORT: the register uses status(es) the platform does "
+                  "not know:", file=sys.stderr)
+            for name in unknown:
+                print(f"    {name!r}", file=sys.stderr)
+            print("  Add one with:\n"
+                  "    INSERT INTO project_status (code, label, is_open) "
+                  "VALUES ('Lost','Lost',0);\n"
+                  "  `is_open` decides whether it counts as an active "
+                  "project.\n", file=sys.stderr)
+            return 1
         n = apply_text(db, text, actor_id)
         m = apply_opening(db, opening, args.reason.strip(), actor_id) if opening else 0
         print(f"  updated {n} field(s), corrected {m} opening balance(s), "

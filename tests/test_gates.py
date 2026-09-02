@@ -248,6 +248,104 @@ class TestNothingIsAcceptedAndIgnored(unittest.TestCase):
 
 
 
+class TestARebuildKeepsWhatItRebuilt(unittest.TestCase):
+    """Recreating a table is three chances to lose something quietly.
+
+    Writing migration `024` from memory dropped `project_no`,
+    `needs_resolution`, `notes` and `source_row`; invented a UNIQUE index on
+    the job code that would have refused data the platform already holds;
+    and would have dropped the ADR-22 CHECK that a project cannot have been
+    invoiced for more than its contract. Each was caught by a test, but only
+    because the tests happened to cover it.
+
+    So the rebuild is checked against what it replaced.
+    """
+
+    def schema(self, upto=None):
+        import shutil
+        import tempfile
+        sys.path.insert(0, ROOT)
+        from ops.db import Db
+        folder = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(folder, "m"))
+            for name in sorted(os.listdir(
+                    os.path.join(ROOT, "ops", "migrations"))):
+                if upto and name >= upto:
+                    continue
+                shutil.copy(
+                    os.path.join(ROOT, "ops", "migrations", name),
+                    os.path.join(folder, "m", name))
+            db = Db(os.path.join(folder, "o.db"), os.path.join(folder, "m"))
+            db.migrate()
+            columns = {r["name"] for r in
+                       db.query("PRAGMA table_info(project)")}
+            indexes = {(r["name"], r["sql"]) for r in db.query(
+                """SELECT name, sql FROM sqlite_master WHERE type = 'index'
+                   AND tbl_name = 'project' AND sql IS NOT NULL""")}
+            triggers = {r["name"] for r in db.query(
+                """SELECT name FROM sqlite_master WHERE type = 'trigger'
+                   AND tbl_name = 'project'""")}
+            table = db.scalar(
+                """SELECT sql FROM sqlite_master WHERE type = 'table'
+                   AND name = 'project'""")
+            views = {r["name"] for r in db.query(
+                "SELECT name FROM sqlite_master WHERE type = 'view'")}
+            db.close()
+            return columns, indexes, triggers, table, views
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def test_the_rebuild_keeps_every_column(self):
+        before, _i, _t, _s, _v = self.schema(upto="024")
+        after, _i2, _t2, _s2, _v2 = self.schema()
+        self.assertEqual(sorted(before - after), [])
+
+    def test_it_keeps_every_index(self):
+        """Compared on WHAT IS INDEXED, not on the name: `project_status`
+        was legitimately renamed to `project_status_idx` because the lookup
+        table took the old name. Comparing names would fail on a rename
+        that changes nothing, and pass on an index that quietly lost a
+        column."""
+        def columns(indexes):
+            return sorted(
+                sql[sql.index("("):].replace(" ", "")
+                for _name, sql in indexes)
+        _c, before, _t, _s, _v = self.schema(upto="024")
+        _c2, after, _t2, _s2, _v2 = self.schema()
+        self.assertEqual(columns(before), columns(after))
+
+    def test_it_does_not_tighten_a_constraint(self):
+        """A rebuild that made the job code unique would refuse data the
+        platform already holds: `Brennan Pl` has an implementation and a
+        licence sharing `JN-6980`, deliberately, with the worklist tracking
+        it."""
+        _c, before, _t, _s, _v = self.schema(upto="024")
+        _c2, after, _t2, _s2, _v2 = self.schema()
+        was_unique = {n for n, q in before if "UNIQUE" in q.upper()}
+        now_unique = {n for n, q in after if "UNIQUE" in q.upper()}
+        self.assertEqual(sorted(now_unique - was_unique), [])
+
+    def test_it_keeps_every_trigger(self):
+        _c, _i, before, _s, _v = self.schema(upto="024")
+        _c2, _i2, after, _s2, _v2 = self.schema()
+        self.assertEqual(sorted(before - after), [])
+
+    def test_it_keeps_every_view(self):
+        """The runner drops them all and puts them back. If one went
+        missing, everything reading it would fail at query time rather than
+        at migrate time."""
+        _c, _i, _t, _s, before = self.schema(upto="024")
+        _c2, _i2, _t2, _s2, after = self.schema()
+        self.assertEqual(sorted(before - after), [])
+
+    def test_it_keeps_the_invoiced_cannot_exceed_contract_check(self):
+        """ADR-22, and the easiest kind of thing to lose in a rebuild: a
+        constraint nobody notices until data arrives that breaks it."""
+        _c, _i, _t, table, _v = self.schema()
+        self.assertIn("invoiced_prior_cents <= purchase_order_cents", table)
+
+
 class TestFilesAreWhereTheyBelong(unittest.TestCase):
     """Misplaced files have cost real time twice: `ops/static/main.py` (the
     app entrypoint copied into the PUBLISHED asset directory) and

@@ -194,7 +194,10 @@ class Db:
                 if "BEGIN" in sql.upper().split("--")[0] and ";" in sql:
                     pass  # triggers legitimately contain BEGIN ... END
                 try:
-                    self._write.executescript(f"BEGIN;\n{sql}\nCOMMIT;")
+                    if version.endswith(".nofk.sql"):
+                        self._rebuild_migration(version, sql)
+                    else:
+                        self._write.executescript(f"BEGIN;\n{sql}\nCOMMIT;")
                     self._write.execute(
                         "INSERT INTO schema_migrations VALUES (?, ?)",
                         (version, int(time.time())))
@@ -204,6 +207,65 @@ class Db:
                     raise MigrationError(f"{version} failed, rolled back: {e}") from e
                 applied.append(version)
             return applied
+
+    def _rebuild_migration(self, version, sql):
+        """A migration that REBUILDS A REFERENCED TABLE.
+
+        Widening a CHECK means recreating the table, and with foreign keys
+        on, dropping one that eight other tables reference simply fails.
+        `PRAGMA foreign_keys` is a no-op inside a transaction, so such a
+        migration cannot run the way the others do.
+
+        This is SQLite's own documented procedure, and the important part is
+        the END of it: `foreign_key_check` runs before the commit, so a
+        rebuild that orphans a row is refused rather than discovered later.
+        Turning the keys off is the dangerous bit; verifying before letting
+        go is what makes it safe.
+
+        Named by the file: `NNN_thing.nofk.sql`. Explicit, because a
+        migration that silently disabled referential integrity would be a
+        migration nobody could review.
+        """
+        # Every view is dropped and put back around the rebuild.
+        #
+        # SQLite validates every view when a table is dropped, so a rebuild
+        # fails on the first view that mentions the table -- and there are
+        # eight. Copying their definitions into the migration would
+        # duplicate two hundred lines that then have to stay in step with
+        # the originals forever, and the views do not change: only the
+        # table beneath them does.
+        #
+        # A view the migration recreates ITSELF is left alone, so a
+        # migration that legitimately redefines one still can.
+        views = [(r["name"], r["sql"]) for r in self.query(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'view' "
+            "AND sql IS NOT NULL ORDER BY name")]
+        self._write.execute("PRAGMA foreign_keys=OFF")
+        try:
+            drop = "".join(f"DROP VIEW IF EXISTS {name};\n"
+                           for name, _sql in views)
+            self._write.executescript(f"BEGIN;\n{drop}{sql}\nCOMMIT;")
+            back = [(name, definition) for name, definition in views
+                    if not self._write.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='view' "
+                        "AND name = ?", (name,)).fetchone()]
+            if back:
+                self._write.executescript(
+                    "BEGIN;\n"
+                    + ";\n".join(definition for _name, definition in back)
+                    + ";\nCOMMIT;")
+            broken = self._write.execute("PRAGMA foreign_key_check").fetchall()
+            if broken:
+                # Roll the whole thing back: a schema whose references do
+                # not resolve is worse than the CHECK we were widening.
+                self._write.executescript(
+                    "BEGIN;" + "".join(
+                        f"-- {row}\n" for row in broken[:5]) + "ROLLBACK;")
+                raise MigrationError(
+                    f"{version} would orphan {len(broken)} row(s): "
+                    f"{broken[:3]}")
+        finally:
+            self._write.execute("PRAGMA foreign_keys=ON")
 
     # ------------------------------------------------------------ health
     def health(self):

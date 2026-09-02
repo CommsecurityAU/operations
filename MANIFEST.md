@@ -1,6 +1,6 @@
 # MANIFEST — where every file goes
 
-**As at:** 1 September 2026 · **927 tests** · pyright --strict clean
+**As at:** 3 September 2026 · **942 tests** · pyright --strict clean
 
 The `repo/` folder mirrors `C:\Dev\operations` exactly. Copy it over the top
 and the paths land correctly — no guessing which `main` is which.
@@ -65,8 +65,10 @@ C:\Dev\operations\
 │   │   ├── 020_finance_role.sql       a role for wages (ADR-46)
 │   │   ├── 021_office_expenses.sql    salaries, rates, months (ADR-47)
 │   │   ├── 022_payroll_role.sql       salaries are a separate grant (ADR-49)
-│   │   └── 023_fy_settings.sql        tax on the year, overhead off the
-│   │                                  bottom line (ADR-51)
+│   │   ├── 023_fy_settings.sql        tax on the year, overhead off the
+│   │   │                              bottom line (ADR-51)
+│   │   └── 024_project_status.nofk.sql  statuses as a lookup (ADR-55).
+│   │                                  `.nofk` = rebuilds a referenced table
 │   ├── modules/                       §6 FEATURE MODULES
 │   │   ├── __init__.py
 │   │   ├── projects.py                register CRUD, validation, routes
@@ -144,11 +146,11 @@ secrets, TLS. `.gitignore` covers it.
 
 ```powershell
 cd C:\Dev\operations
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 927 OK
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 942 OK
 .\dev.ps1 -Stale                                             # running == disk?
 ```
 
-If the count is below 927, a test file did not land. If `-Stale` says STALE,
+If the count is below 942, a test file did not land. If `-Stale` says STALE,
 restart the server — Python loads a module once, so a running process can be
 several edits behind the working tree while every test passes.
 

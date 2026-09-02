@@ -34,6 +34,15 @@ STATES = {"to be ordered", "create po", "ordered", "invoice received",
           "paid - pending delivery", "delivered", "complete"}
 
 
+def _current_fy_label() -> str:
+    """The Australian financial year runs July to June, so anything from
+    July belongs to the year named for the following calendar year."""
+    import time as _time
+    now = _time.localtime()
+    fy = now.tm_year + 1 if now.tm_mon >= 7 else now.tm_year
+    return f"FY{str(fy)[2:]}"
+
+
 def entity_ids(user: dict[str, Any]) -> list[int]:
     return sorted({r["entity_id"] for r in user["roles"]})
 
@@ -75,6 +84,12 @@ def register(router: Router, db: Db) -> None:
         return 200, {
             "lines": rows,
             "totals": {
+                # Everything not cancelled, whether ordered or only
+                # estimated. The four figures beside it each leave
+                # something out, so none of them is the total anyone means
+                # when they ask what this lot is worth.
+                "total_cents": sum(
+                    r["total_cents"] for r in rows if not r["cancelled_date"]),
                 "committed_cents": sum(
                     r["total_cents"] for r in rows
                     if not r["cancelled_date"] and not r["is_estimate"]),
@@ -122,6 +137,12 @@ def register(router: Router, db: Db) -> None:
                 tuple(ids)),
             "date_fields": list(DATE_FIELDS),
             "states": sorted(STATES),
+            # The year we are IN, so the grid opens on it. Computed here
+            # rather than in the browser: the same rule already lives on
+            # the dashboard, and a financial year worked out in two places
+            # is a financial year that will eventually disagree with
+            # itself.
+            "current_fy_label": _current_fy_label(),
         }
 
     @router.route("/api/procurement", role=ROLE_WRITE, method="POST")

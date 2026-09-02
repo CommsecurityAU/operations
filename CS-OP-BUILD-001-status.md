@@ -647,42 +647,90 @@ against estimated. The workbook mixed them silently in every row.
 
 ---
 
+## The first resync, 3 September
+
+Projects, invoicing and procurement all re-exported and re-synced against a
+platform that had been in use for a week. Office expenses were unchanged.
+
+    projects      70 rows, register clean but for one stale cell
+    invoicing     12 claims added, detail reconciles to the matrix exactly
+    procurement   8 lines added, 0 changed, 19 states HELD
+
+**What it proved.** The sync is not a re-import: it added what was new, left
+alone what the platform knew better, and reported everything before writing.
+
+**And what it nearly did.** The procurement sync wanted to walk nineteen
+lines backwards from `complete` to `delivered` — not because the register
+had changed, but because those lines were marked complete HERE and the
+register still said what it said at the last export. That produced ADR-53,
+which is the general form of a rule already written three times separately:
+**the sheet may tell the platform something it has never been told, and may
+not overwrite something recorded here.**
+
+---
+
+## Three ways a spreadsheet drifts, all found this week
+
+1. **A live FX cell.** Opening the procurement sheet re-converted every USD
+   line from 1.388561 to 1.400606 — twelve costs moved and not one price
+   changed. The rate is fixed at quote, so the platform costs each line at
+   its own quote's rate and the sheet can no longer move it (ADR-54).
+2. **States that lag.** Nineteen lines were further along in reality than in
+   the register.
+3. **A total row that does not match its own rows.** $526.39 out before
+   October and $1,416.56 after, in every month.
+
+None of these is a mistake anybody made. They are what happens to a
+spreadsheet that is in use.
+
+---
+
+## A vocabulary the platform could not accept
+
+The register began using `Lost`. `status` was a CHECK over four values, and
+widening one means rebuilding a table eight others reference — which fails
+outright with foreign keys on.
+
+So the migration runner gained a **rebuild mode** (`.nofk.sql`): keys off,
+every view dropped and restored, and `foreign_key_check` before the commit.
+Statuses are a lookup table now, so the next one is an INSERT (ADR-55).
+
+Writing that rebuild from memory dropped four columns, invented a UNIQUE
+index that would have refused data already held, and lost the ADR-22 CHECK.
+All three were caught, but only by luck of coverage — so a gate now compares
+a rebuilt table against what it replaced.
+
+---
+
 ## Resume point
 
-**STP-0 through STP-5 are built.** The work left is not building.
+**Every phase is built and the data is resynced.** What remains is
+confirmation, then deployment.
 
-### Tomorrow, in order
+### Tomorrow
 
-1. **RESYNC FROM SOURCE.** Projects, invoicing and expenses have all moved
-   since the imports. Fresh CSV exports, then:
-
-   ```powershell
-   Copy-Item data\ops.db data\ops-before-resync.db
-   py tools\sync_register.py    --db data\ops.db --csv "$d\...Projects.csv"
-   py tools\import_claims.py    --db data\ops.db --invoicing ... --future ... --matrix ... --sync
-   py tools\drift_check.py      --db data\ops.db --csv "$d\...Projects.csv"
-   ```
-
-   Office expenses are one-shot, so a changed sheet means deciding whether
-   to edit in the platform or rebuild that table. Worth thinking about
-   before running anything.
-
-2. **CONFIRM THE FIGURES** against the dashboard: contract value, invoiced,
-   orders in hand, and the FY27 bottom line.
-
-3. **DEPLOY**, then **BACKUPS**. CS-OP-RUN-002 has four **[SITE]** gaps
-   needing answers when the VM appears, and `tools/offbox_sync.sh` has
-   never run anywhere. Everything above exists once, on one laptop.
+1. **VALIDATE THE DATA.** The resync is applied and unverified. Check the
+   dashboard against the workbook: contract value, invoiced, orders in
+   hand, project cost, office cost, and the FY27 bottom line. Where they
+   differ, the difference should be explainable — most of it is corrections
+   the platform made and the sheet has not.
+2. **One thing already looks off:** the procurement screen showed **81
+   lines** where the database should hold about 95 after the sync. Worth
+   finding before trusting any total.
+3. **DEPLOY, then BACKUPS.** CS-OP-RUN-002 has four **[SITE]** gaps needing
+   answers when the VM appears, and `tools/offbox_sync.sh` has never run
+   anywhere.
 
 ### Still open, none blocking
 
-- **Two projects are missing** with rows waiting: `36 Wellington St - ICN
-  Maintenance (JN-6963)` and `PDNSW - 6PSQ L13 Tenancy Access Door`.
-- **ABNs** on all 92 suppliers; one without is withheld at 47%.
+- **ABNs** on all 94 suppliers; one without is withheld at 47%.
+- **`Ruckus`** carries a $215,000 line with no currency stated — the
+  largest single item in the register, and a US manufacturer.
+- **`36 Wellington St / Dicker Data / ICN Equipment Licenses`** came in with
+  no cost.
 - **The iTrade job-number block**, which four `TBA` rows wait on.
 - **UI debts**: the project panel closes on every action; a 500 reads as
-  `internal error` while the traceback sits in the terminal; the register's
-  `Invoiced prior` column now means all invoicing.
+  `internal error` while the traceback sits in the terminal.
 
 ---
 
@@ -693,9 +741,11 @@ cd C:\Dev\operations
 Get-ChildItem -Recurse -File | Unblock-File
 .\dev.ps1                 # serve on 5173, then sign in with Google
 .\dev.ps1 -Stale          # code AND assets, against the delivered values
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 927
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 942
 ```
 
-Fingerprints: code `52fd0b92618b`, assets `faee16d54b0d`.
-Migrations applied: `001` through `023`.
+Fingerprints: code `17496bedb92a`, assets `9476ff1b4a32`.
+Migrations applied: `001` through `024`.
 Roles: `viewer`, `operations`, `approver`, `admin`, `finance`, `payroll`.
+Imports live in `C:\Dev\operations\imports\` — gitignored; the exports
+carry salaries and supplier terms.

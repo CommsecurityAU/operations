@@ -173,9 +173,14 @@ def register(router: Router, db: Db) -> None:
             # year named for the following calendar year.
             "current_fy": (int(today[:4]) + 1 if int(today[5:7]) >= 7
                            else int(today[:4])),
+            # `is_open`, not the literal `Active`: DLP and SLA are work
+            # still going on, and `Lost` and `Complete` are both finished
+            # in very different ways. The lookup decides, so adding a
+            # status does not mean finding every count that hard-coded one.
             "active_projects": db.scalar(
-                f"""SELECT COUNT(*) FROM project
-                    WHERE entity_id IN ({marks}) AND status = 'Active'""",
+                f"""SELECT COUNT(*) FROM project p
+                    JOIN project_status s ON s.code = p.status
+                    WHERE p.entity_id IN ({marks}) AND s.is_open = 1""",
                 tuple(ids)) or 0,
             "staff_count": db.scalar(
                 f"""SELECT COUNT(*) FROM expense_line l

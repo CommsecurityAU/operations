@@ -383,6 +383,80 @@ class TestTheFiguresAgreeWithTheRows(Case):
         self.assertTrue(row)
 
 
+class TestTheRegisterSync(Case):
+    """The register is re-exported and re-synced; the platform must take
+    what changed and ignore what only appears to have."""
+
+    def setUp(self):
+        super().setUp()
+        sys.path.insert(0, os.path.join(ROOT, "tools"))
+        import import_procurement as ip
+        self.ip = ip
+
+    def test_the_key_is_the_resolved_supplier_not_the_sheets_word(self):
+        """The sheet says `Eve` where the platform holds `EVE Security
+        Services Pty Ltd`. Keying on the raw name made every aliased row
+        look new -- twenty-nine of them, against six that were."""
+        first = self.ip.natural_key(1, 7, "Widget")
+        second = self.ip.natural_key(1, 7, "  widget ")
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, self.ip.natural_key(1, 8, "Widget"))
+
+    def test_quantity_and_cost_are_not_part_of_the_key(self):
+        """Both legitimately change on a row that is still the same row."""
+        self.assertEqual(self.ip.natural_key(1, 7, "Widget"),
+                         self.ip.natural_key(1, 7, "Widget"))
+
+    def test_a_recorded_date_is_not_syncable(self):
+        """`delivered_date` and `paid_date` are facts the sheet does not
+        hold. Syncing them back from a sheet that never had them would
+        erase the thing the platform exists to capture."""
+        for field in ("delivered_date", "paid_date", "invoiced_date",
+                      "cancelled_date"):
+            self.assertNotIn(field, self.ip.SYNCED_FIELDS)
+
+    def test_a_state_set_here_is_not_undone_by_the_sheet(self):
+        """Twenty lines were marked `complete` in the platform while the
+        register still said `delivered` -- unchanged since the last export.
+        Syncing would have walked every one backwards.
+
+        The sheet may tell the platform something it has never been told;
+        it may not overwrite something recorded here. Same rule as the
+        dates, and as a typed expense figure beating a calculated one.
+        """
+        row = self.line(self.bourke, item="Widget", supplier_id=self.usr,
+                        stated_state="delivered")
+        self.db.update_procurement_line(
+            row["id"], {"stated_state": "complete"}, self.user["id"])
+        edited = self.db.scalar(
+            """SELECT COUNT(*) FROM procurement_line_revision
+               WHERE line_id = ? AND field = 'stated_state'""", (row["id"],))
+        self.assertEqual(edited, 1)
+        self.assertEqual(self.db.scalar(
+            "SELECT stated_state FROM procurement_line WHERE id = ?",
+            (row["id"],)), "complete")
+
+    def test_a_line_never_touched_here_still_takes_the_sheets_state(self):
+        """Otherwise a genuine change in the register could never land."""
+        row = self.line(self.bourke, item="Widget", supplier_id=self.usr,
+                        stated_state="ordered")
+        self.assertEqual(self.db.scalar(
+            """SELECT COUNT(*) FROM procurement_line_revision
+               WHERE line_id = ? AND field = 'stated_state'""",
+            (row["id"],)), 0)
+
+    def test_an_estimate_is_never_matched_against_the_register(self):
+        """Estimates come from the expense matrix, not the procurement
+        sheet, and a sync that adopted one would turn a forecast into a
+        purchase."""
+        self.line(self.bourke, item="Widget", is_estimate=1,
+                  supplier_id=self.usr)
+        rows = self.db.query(
+            """SELECT COUNT(*) AS n FROM procurement_line
+               WHERE is_estimate = 0""")
+        self.assertEqual(rows[0]["n"], 0)
+
+
 class TestWhatAProjectHasCost(Case):
     def test_committed_paid_and_outstanding(self):
         self.line(self.bourke, total_cents=100000)

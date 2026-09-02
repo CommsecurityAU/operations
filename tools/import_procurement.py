@@ -259,6 +259,117 @@ def build(db, resolved, fx_rate_bp, entity_id, actor_id, apply):
     return created
 
 
+#: What the register owns, and may therefore change on a row that already
+#: exists. Deliberately short: a DATE somebody recorded in the platform is
+#: a fact the sheet does not have, so `delivered_date` and `paid_date` are
+#: not here. Syncing them back from a sheet that never held them would
+#: erase the thing the platform was built to capture.
+SYNCED_FIELDS = ("quantity", "unit_cost_cents", "total_cents", "currency",
+                 "period_id", "item", "description", "note", "stated_state")
+
+
+def natural_key(project_id, supplier_id, item):
+    """Project, supplier and item.
+
+    The RESOLVED supplier, not the register's word for it: the sheet says
+    `Eve` where the platform holds `EVE Security Services Pty Ltd`, and
+    keying on the raw name made every aliased row look new -- twenty-nine
+    of them, against six that actually were.
+
+    Not quantity or cost either: both legitimately change on a row that is
+    still the same row. Twelve costs moved in the September export and none
+    of them was a new purchase.
+    """
+    return (project_id, supplier_id, (item or "").strip().casefold())
+
+
+def plan_sync(db, resolved, fx_rate_bp, entity_id):
+    """What the register has that the platform does not, and what has
+    changed on the rows they share."""
+    existing = {}
+    for row in db.query(
+            """SELECT l.id, l.project_id, l.supplier_id, l.item, l.quantity,
+                      l.unit_cost_cents, l.total_cents, l.currency,
+                      l.period_id, l.description, l.note, l.stated_state,
+                      l.is_estimate, l.delivered_date, l.paid_date,
+                      q.fx_rate_bp AS fx_rate_bp
+               FROM procurement_line l
+               LEFT JOIN supplier_quote q ON q.id = l.supplier_quote_id
+               WHERE l.entity_id = ? AND l.is_estimate = 0""",
+            (entity_id,)):
+        existing[natural_key(row["project_id"], row["supplier_id"],
+                             row["item"])] = row
+
+    added, changed, unchanged, held = [], [], 0, []
+    for n, row, project_id, supplier_id in resolved:
+        found = existing.get(natural_key(project_id, supplier_id,
+                                         row.get("Item")))
+        if found is None:
+            added.append((n, row, project_id, supplier_id))
+            continue
+        # A USD line is costed at the rate of ITS OWN QUOTE, not at
+        # whatever the sheet says today. The sheet's rate cell is live: it
+        # re-floats every foreign line the moment somebody opens the file,
+        # which moved twelve costs in the September export without a single
+        # price changing. The rate is agreed with the supplier and fixed at
+        # quote (ADR-40), so the line's own rate is the one that governs.
+        rate = None
+        if found["currency"] != "AUD":
+            rate = found["fx_rate_bp"]
+            if not rate and found["unit_cost_cents"] and found["quantity"]:
+                # A USD line imported WITHOUT a quote reference has no rate
+                # recorded anywhere, so it is recovered from what it was
+                # costed at. Backing it out is exact: the total was computed
+                # from these two numbers and a rate, once.
+                gross = found["unit_cost_cents"] * found["quantity"]
+                rate = round(found["total_cents"] * 10_000_000 / gross)
+        wanted = line_fields(db, row, rate if rate else fx_rate_bp)
+        diffs = {k: (found[k], v) for k, v in wanted.items()
+                 if k in SYNCED_FIELDS and found[k] != v}
+        # A STATE somebody set in the platform is not the sheet's to undo.
+        # Twenty lines were marked `complete` here while the register still
+        # said `delivered` -- unchanged since the last export -- and syncing
+        # would have walked every one of them backwards. The sheet may tell
+        # the platform something it has never been told; it may not
+        # overwrite something recorded here. Same rule as the dates, and
+        # the same rule as a typed expense figure beating a calculated one.
+        if "stated_state" in diffs and db.scalar(
+                """SELECT COUNT(*) FROM procurement_line_revision
+                   WHERE line_id = ? AND field = 'stated_state'""",
+                (found["id"],)):
+            held.append((found, row, diffs.pop("stated_state")))
+        if diffs:
+            changed.append((found, row, diffs))
+        else:
+            unchanged += 1
+    return added, changed, unchanged, held
+
+
+def line_fields(db, row, fx_rate_bp):
+    """The register's own view of a line, in the platform's terms."""
+    currency = "USD" if cents(row.get("USD")) else "AUD"
+    unit = cents(row.get("USD")) if currency == "USD" else cents(row.get("Cost"))
+    try:
+        quantity = max(1, int(float((row.get("Qty Req") or "1").strip() or 1)))
+    except ValueError:
+        quantity = 1
+    rate = fx_rate_bp if currency == "USD" else None
+    eom = (row.get("EOM") or "").strip()
+    return {
+        "quantity": quantity,
+        "currency": currency,
+        "unit_cost_cents": unit or 0,
+        "total_cents": Db.extend(unit or 0, quantity, rate),
+        "period_id": db.scalar("SELECT id FROM period WHERE label = ?", (eom,))
+                     if eom else None,
+        "item": (row.get("Item") or "").strip() or None,
+        "description": (row.get("Description") or "").strip() or None,
+        "note": (row.get("Other Info") or "").strip() or None,
+        "stated_state": (row.get("Delivery Remaining") or "").strip().casefold()
+                        or None,
+    }
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--db", required=True)
@@ -272,6 +383,9 @@ def main(argv=None):
                          "does not carry it above the header.")
     ap.add_argument("--reset", action="store_true",
                     help="clear a partial import and start again")
+    ap.add_argument("--sync", action="store_true",
+                    help="add what is new and update what changed, instead "
+                         "of importing from empty")
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args(argv)
 
@@ -307,7 +421,7 @@ def main(argv=None):
             print("  cleared "
                   + ", ".join(f"{v} {k}" for k, v in counts_now.items() if v))
             counts_now = {t: 0 for t in counts_now}
-        if any(counts_now.values()):
+        if any(counts_now.values()) and not args.sync:
             print("ABORT: procurement is already imported ("
                   + ", ".join(f"{v} {k}" for k, v in counts_now.items() if v)
                   + "). This importer is one-shot; use --reset --apply to "
@@ -369,6 +483,46 @@ def main(argv=None):
             # so those rows are listed and left, and the rest go in.
             print("  Those rows are SKIPPED. Create the project and run "
                   "again for them.")
+
+        if args.sync:
+            added, changed, unchanged, held = plan_sync(
+                db, resolved, fx_rate_bp, args.entity)
+            print(f"\n  {len(added)} new, {len(changed)} changed, "
+                  f"{unchanged} unchanged"
+                  + (f", {len(held)} state(s) held" if held else ""))
+            for _n, row, _p, _s in added:
+                print(f"    + {row['Project'][:26]:26s} "
+                      f"{(row.get('Supplier') or '')[:20]:20s} "
+                      f"{(row.get('Item') or '')[:26]:26s} {row.get('Cost','')}")
+            for found, row, diffs in changed:
+                print(f"    ~ {row['Project'][:26]:26s} "
+                      f"{(row.get('Item') or '')[:26]:26s}")
+                for field, (was, now) in sorted(diffs.items()):
+                    shown = ((money.format(was), money.format(now))
+                             if field.endswith("_cents") else (was, now))
+                    print(f"        {field:18s} {shown[0]!r} -> {shown[1]!r}")
+            if held:
+                print(f"\n  {len(held)} line(s) whose state was set HERE and "
+                      "is left alone:")
+                for found, row, (was, now) in held:
+                    print(f"    {row['Project'][:26]:26s} "
+                          f"{(row.get('Item') or '')[:24]:24s} "
+                          f"platform {was!r}, sheet {now!r}")
+            # A line the platform has and the register no longer does is
+            # left ALONE. The sheet is where lines are added, not the only
+            # place they may exist, and deleting spend because a row moved
+            # is not a trade worth making.
+            if not args.apply:
+                print("\n  DRY RUN — nothing written. Re-run with --apply.\n")
+                return 0
+            made = build(db, added, fx_rate_bp, args.entity, actor_id, True)
+            for found, _row, diffs in changed:
+                db.update_procurement_line(
+                    found["id"], {k: v for k, (_w, v) in diffs.items()},
+                    actor_id, "register sync")
+            print(f"\n  added {made['lines']} line(s), "
+                  f"updated {len(changed)}.\n")
+            return 0
 
         counts = build(db, resolved, fx_rate_bp, args.entity, actor_id, False)
         print(f"\n  would create {counts['lines']} line(s), "

@@ -432,6 +432,36 @@ class TestEstimatesOnTheScreen(Case):
         self.assertEqual(body["totals"]["estimated_cents"], 0)
 
 
+class TestTheTotalsAnswerTheQuestion(Case):
+    """Committed, paid and undelivered each leave something out — an
+    estimate, a cancellation, or both — so none of them is the figure
+    somebody means when they ask what this lot is worth."""
+
+    def test_the_total_includes_estimates(self):
+        line = self.add()[1]["id"]
+        self.call("PATCH", f"/api/procurement/{line}", {"is_estimate": True})
+        self.add()
+        _s, body = self.call("GET", "/api/procurement")
+        self.assertEqual(body["totals"]["total_cents"], 4582 * 2)
+        self.assertEqual(body["totals"]["committed_cents"], 4582)
+        self.assertEqual(body["totals"]["estimated_cents"], 4582)
+
+    def test_the_total_excludes_a_cancelled_line(self):
+        """A line nobody will pay for is not worth anything."""
+        line = self.add()[1]["id"]
+        self.call("PATCH", f"/api/procurement/{line}",
+                  {"cancelled_date": "2026-07-06", "cancel_reason": "returned"})
+        _s, body = self.call("GET", "/api/procurement")
+        self.assertEqual(body["totals"]["total_cents"], 0)
+
+    def test_the_current_year_comes_with_the_list(self):
+        """So the grid opens on it. Worked out on the server, because a
+        financial year computed in two places will eventually disagree with
+        itself."""
+        _s, body = self.call("GET", "/api/procurement")
+        self.assertRegex(body["current_fy_label"], r"^FY\d\d$")
+
+
 class TestPermissions(Case):
     roles = ("viewer",)
 

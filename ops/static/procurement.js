@@ -55,7 +55,11 @@ export async function render(root) {
   }
 
   const figures = {
-    committed: figure("Committed", "is-primary"),
+    // What this lot is worth, whatever state it is in. FIRST, because it
+    // is the figure people mean when they ask -- and the four beside it
+    // each leave something out, so none of them answers that question.
+    total: figure("Total", "is-primary"),
+    committed: figure("Committed"),
     estimated: figure("Estimated"),
     paid: figure("Paid"),
     undelivered: figure("Not yet delivered", "is-attention"),
@@ -65,6 +69,7 @@ export async function render(root) {
   function summarise(visible) {
     const live = visible.filter((r) => !r.cancelled_date);
     const sum = (rows) => rows.reduce((t, r) => t + r.total_cents, 0);
+    figures.total.set(fmt.money(sum(live)));
     // An estimate is not a commitment: $1.57m of them beside $160k of
     // real orders would make committed cost wrong by a factor of ten.
     const real = live.filter((r) => !r.is_estimate);
@@ -258,6 +263,9 @@ export async function render(root) {
           pageSize: 200,
           exportName: "procurement",
           stateKey: "procurement",
+          // Open on the year we are in. A default, not a lock: a
+          // remembered choice wins over it.
+          filterDefaults: { fy_label: [data.current_fy_label] },
         })
       : stateMessage("Nothing ordered yet",
           "Import the procurement register, or add a line.", false)));

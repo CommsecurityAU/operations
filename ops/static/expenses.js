@@ -201,8 +201,15 @@ export async function render(root) {
         if (isOpen) open_.delete(name); else open_.add(name);
         render(root);
       });
+      // The group's own total across everything shown, in the column that
+      // carries a salary or a rate on the lines beneath. A collapsed
+      // category otherwise shows twelve figures and no answer to `what
+      // does this cost`.
+      const groupTotal = columns.reduce((t, column) => t
+        + inCategory.reduce((n, id) => n + sum(cellsFor(id, column)), 0), 0);
       rows.push(h("tr", { class: "group" },
-        h("th", { colspan: "2" }, toggleRow),
+        h("th", null, toggleRow),
+        h("th", { class: "num" }, fmt.money(groupTotal)),
         columns.map((column) => h("th", { class: "num" },
           fmt.money(inCategory.reduce(
             (t, id) => t + sum(cellsFor(id, column)), 0))))));
@@ -276,11 +283,17 @@ export async function render(root) {
           h("table", { class: "expense-grid" },
             h("thead", null, h("tr", null,
               h("th", null, "Line"),
-              h("th", { class: "num" }, "Salary / rate"),
+              // Holds the group's total on a header row and a salary or a
+              // rate on a line, which is why it is not called either.
+              h("th", { class: "num" }, "Total / rate"),
               columns.map((c) => h("th", { class: "num" }, c.label)))),
             h("tbody", null, rows),
             h("tfoot", null, h("tr", null,
-              h("th", { colspan: "2" }, "Total"),
+              h("th", null, "Total"),
+              h("th", { class: "num" },
+                fmt.money(columns.reduce((t, column) => t
+                  + data.lines.reduce(
+                    (n, l) => n + sum(cellsFor(l.line_id, column)), 0), 0))),
               columns.map((column) => h("th", { class: "num" },
                 fmt.money(data.lines.reduce(
                   (t, l) => t + sum(cellsFor(l.line_id, column)), 0))))))))

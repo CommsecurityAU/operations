@@ -310,3 +310,39 @@ export function invoiceDialog(line, onDone) {
 // The EOM and the state ARE the controls, the way the month cell is on the
 // invoicing grid. Changing either is the commonest thing anyone does here,
 // and a dialog would put two clicks in front of one decision.
+
+// Deleting is for a row that should NEVER have existed -- a duplicate, a
+// mistyped entry. Cancelling is for one that was real and is not any more,
+// and that leaves a trace on purpose. The dialog says which this is,
+// because they are one click apart and only one of them is reversible by
+// reading the audit log.
+export function deleteDialog(line, onDone) {
+  const controls = {
+    reason: field("Why is this being deleted",
+      h("textarea", { rows: 2, "aria-label": "Reason" }),
+      "Kept in the audit log with the whole row, so it can be read back"),
+  };
+  sheet(`Delete \u00b7 ${line.item || line.description || "line"}`,
+    `${line.project_name} \u00b7 ${fmt.money(line.total_cents)}`
+    + (line.is_estimate ? " \u00b7 an estimate" : ""),
+    { fields: [
+        h("p", { class: "muted note" },
+          "Delete a row that should not exist \u2014 entered twice, or "
+          + "superseded by a real purchase. If it was a real order that is "
+          + "no longer going ahead, CANCEL it instead: that keeps it "
+          + "visible and out of the totals."),
+        ...Object.values(controls).map((c) => c.wrap),
+      ],
+      controls: Object.values(controls), byKey: controls },
+    "Delete",
+    async () => {
+      const reason = controls.reason.control.value.trim();
+      if (!reason) {
+        controls.reason.setError("required");
+        throw new Error("");
+      }
+      const gone = await api("DELETE", `/api/procurement/${line.id}`,
+                             { reason });
+      onDone(null, `Deleted ${gone.item || "line"} on ${gone.project}`);
+    });
+}

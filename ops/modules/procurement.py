@@ -407,6 +407,29 @@ def register(router: Router, db: Db) -> None:
             "approved_date": (payload.get("approved_date") or "").strip() or None,
         }, user["id"])
 
+    @router.route("/api/procurement/{line_id}", role=ROLE_APPROVE,
+                  method="DELETE")
+    def remove_line(handler, user, line_id):
+        """A row that should never have existed.
+
+        Approver, not operations: deleting is the one action that leaves
+        nothing on the screen to notice, so it needs the person who signs
+        things off rather than the person entering them.
+        """
+        row = owned_line(user, line_id)
+        payload = handler.read_json() if handler.headers.get("Content-Length") \
+            else {}
+        blocked = db.procurement_line_is_deletable(row["id"])
+        if blocked:
+            raise HttpError(409, blocked)
+        try:
+            db.delete_procurement_line(
+                row["id"], payload.get("reason"), user["id"])
+        except ValueError as e:
+            raise HttpError(400, "validation failed", {"reason": str(e)})
+        return 200, {"deleted": row["id"], "item": row["item"],
+                     "project": row["project_name"]}
+
     @router.route("/api/procurement/{line_id}/invoice", role=ROLE_WRITE,
                   method="POST")
     def attach_invoice(handler, user, line_id):

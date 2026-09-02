@@ -462,6 +462,84 @@ class TestTheTotalsAnswerTheQuestion(Case):
         self.assertRegex(body["current_fy_label"], r"^FY\d\d$")
 
 
+class TestDeletingALineThatShouldNotExist(Case):
+    """DELETE is for a row that should never have existed — entered twice,
+    or an estimate superseded by the real purchase. CANCEL is for one that
+    was real and is not any more, and that leaves a trace on purpose."""
+
+    roles = ("viewer", "operations", "approver")
+
+    def test_a_plain_line_can_be_deleted_with_a_reason(self):
+        line = self.add()[1]["id"]
+        status, body = self.call("DELETE", f"/api/procurement/{line}",
+                                 {"reason": "duplicate of the real order"})
+        self.assertEqual(status, 200, body)
+        self.assertIsNone(self.db.query_one(
+            "SELECT id FROM procurement_line WHERE id = ?", (line,)))
+
+    def test_a_reason_is_required(self):
+        """A deletion nobody can question is a deletion nobody can
+        check."""
+        line = self.add()[1]["id"]
+        status, body = self.call("DELETE", f"/api/procurement/{line}", {})
+        self.assertEqual(status, 400)
+        self.assertIn("reason", body["detail"])
+
+    def test_the_whole_row_is_written_down_first(self):
+        """A deletion nobody can reconstruct is a deletion nobody can
+        question."""
+        line = self.add(item="USR-N510-H7-4")[1]["id"]
+        self.call("DELETE", f"/api/procurement/{line}",
+                  {"reason": "entered twice"})
+        row = self.db.query_one(
+            "SELECT detail FROM audit_log WHERE action = 'procurement_delete'")
+        self.assertIn("USR-N510-H7-4", row["detail"])
+        self.assertIn("entered twice", row["detail"])
+
+    def test_a_paid_line_is_refused(self):
+        """Money that moved is cancelled, not erased."""
+        line = self.add()[1]["id"]
+        self.call("PATCH", f"/api/procurement/{line}",
+                  {"paid_date": "2026-07-01"})
+        status, body = self.call("DELETE", f"/api/procurement/{line}",
+                                 {"reason": "oops"})
+        self.assertEqual(status, 409)
+        self.assertIn("cancel it", body["error"])
+
+    def test_a_delivered_line_is_refused(self):
+        line = self.add()[1]["id"]
+        self.call("PATCH", f"/api/procurement/{line}",
+                  {"delivered_date": "2026-07-20"})
+        self.assertEqual(self.call("DELETE", f"/api/procurement/{line}",
+                                   {"reason": "oops"})[0], 409)
+
+    def test_a_line_on_an_invoice_is_refused(self):
+        line = self.add()[1]["id"]
+        self.call("POST", f"/api/procurement/{line}/invoice",
+                  {"invoice_ref": "INV-1"})
+        status, body = self.call("DELETE", f"/api/procurement/{line}",
+                                 {"reason": "oops"})
+        self.assertEqual(status, 409)
+        self.assertIn("invoice", body["error"])
+
+    def test_an_estimate_can_always_go(self):
+        """Nothing was ordered, so nothing moved. This is the case it was
+        built for: a $44,000 estimate superseded by a $39,600 purchase."""
+        line = self.add()[1]["id"]
+        self.call("PATCH", f"/api/procurement/{line}", {"is_estimate": True})
+        self.assertEqual(self.call("DELETE", f"/api/procurement/{line}",
+                                   {"reason": "superseded by the real order"})[0],
+                         200)
+
+    def test_operations_alone_cannot_delete(self):
+        """It is the one action that leaves nothing on the screen to
+        notice."""
+        self.db.revoke_role(self.user["id"], 1, "approver", self.user["id"])
+        line = self.add()[1]["id"]
+        self.assertEqual(self.call("DELETE", f"/api/procurement/{line}",
+                                   {"reason": "x"})[0], 403)
+
+
 class TestPermissions(Case):
     roles = ("viewer",)
 

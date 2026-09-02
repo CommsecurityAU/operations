@@ -721,6 +721,13 @@ confirmation, then deployment.
    answers when the VM appears, and `tools/offbox_sync.sh` has never run
    anywhere.
 
+**The first thing the resync surfaced** was a duplicate: a $44,000 expense
+estimate on `The Lindrum - ICN` superseded by the $39,600 purchase that
+replaced it, with nothing to remove the estimate. That produced ADR-56 —
+**delete for a row that should never have existed, cancel for one that was
+real** — with money that has moved refused from deletion and the whole row
+written to the audit log before it goes.
+
 ### Still open, none blocking
 
 - **ABNs** on all 94 suppliers; one without is withheld at 47%.
@@ -741,10 +748,10 @@ cd C:\Dev\operations
 Get-ChildItem -Recurse -File | Unblock-File
 .\dev.ps1                 # serve on 5173, then sign in with Google
 .\dev.ps1 -Stale          # code AND assets, against the delivered values
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 942
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 950
 ```
 
-Fingerprints: code `17496bedb92a`, assets `9476ff1b4a32`.
+Fingerprints: code `9e20dfcc1063`, assets `d9220f3a0c09`.
 Migrations applied: `001` through `024`.
 Roles: `viewer`, `operations`, `approver`, `admin`, `finance`, `payroll`.
 Imports live in `C:\Dev\operations\imports\` — gitignored; the exports

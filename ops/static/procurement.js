@@ -45,7 +45,12 @@ export async function render(root) {
     mount(root, stateMessage("Could not load procurement", err.message, true));
     return;
   }
-  const canWrite = new Set(me.roles.map((r) => r.role)).has("operations");
+  const roles = new Set(me.roles.map((r) => r.role));
+  const canWrite = roles.has("operations");
+  // Deleting is the one action that leaves nothing on the screen to
+  // notice, so it belongs to whoever signs things off rather than to
+  // whoever enters them.
+  const canApprove = roles.has("approver");
 
   const notice = h("div", { class: "notice", hidden: true });
   if (pending) {
@@ -223,7 +228,14 @@ export async function render(root) {
                       onclick: (e) => {
                         e.stopPropagation();
                         open("invoiceDialog", row);
-                      } }, "Invoice")),
+                      } }, "Invoice"),
+        canApprove
+          ? h("button", { type: "button", class: "danger",
+                          onclick: (e) => {
+                            e.stopPropagation();
+                            open("deleteDialog", row);
+                          } }, "Delete")
+          : null),
     });
   }
 

@@ -1076,6 +1076,67 @@ class Db:
                     (line_id, period_id, cents, actor_id, now))
             return 1
 
+    def procurement_line_is_deletable(self, line_id):
+        """Why this line cannot be deleted, or None.
+
+        DELETE means the row should never have existed -- a duplicate, a
+        mistyped entry. CANCEL means it was real and is not any more, and
+        that leaves a trace on purpose.
+
+        So a line that has been invoiced, paid or delivered is refused:
+        those are facts about money that moved, and money that moved is
+        cancelled rather than erased.
+        """
+        row = self.query_one(
+            """SELECT invoiced_date, paid_date, delivered_date,
+                      supplier_invoice_id, is_paid, is_delivered
+               FROM v_procurement_line WHERE id = ?""", (line_id,))
+        if row is None:
+            return "no such line"
+        for field, what in (("invoiced_date", "invoiced"),
+                            ("paid_date", "paid"),
+                            ("delivered_date", "delivered")):
+            if row[field]:
+                return (f"this line was {what} on {row[field]}; cancel it "
+                        "rather than deleting it")
+        if row["supplier_invoice_id"]:
+            return ("this line is attached to a supplier invoice; cancel it "
+                    "rather than deleting it")
+        if row["is_paid"] or row["is_delivered"]:
+            return ("this line reads as paid or delivered; cancel it rather "
+                    "than deleting it")
+        return None
+
+    def delete_procurement_line(self, line_id, reason, actor_id):
+        """Remove a row that should not exist. Reason mandatory.
+
+        The whole row is written to the audit log first, because a deletion
+        nobody can reconstruct is a deletion nobody can question.
+        """
+        if not (reason or "").strip():
+            raise ValueError("a reason is required")
+        now = int(time.time())
+        row = self.query_one(
+            "SELECT * FROM v_procurement_line WHERE id = ?", (line_id,))
+        if row is None:
+            return False
+        detail = "; ".join(
+            f"{k}={row[k]!r}" for k in
+            ("project_name", "supplier_name", "item", "description",
+             "quantity", "currency", "total_cents", "period_label",
+             "is_estimate", "stated_state") if row[k] is not None)
+        with self._tx() as c:
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action,
+                       target_type, target_id, detail)
+                   VALUES (?,?,'procurement_delete','procurement_line',?,?)""",
+                (now, actor_id, str(line_id),
+                 f"{detail} :: {reason.strip()}"))
+            c.execute("DELETE FROM procurement_line_revision WHERE line_id = ?",
+                      (line_id,))
+            c.execute("DELETE FROM procurement_line WHERE id = ?", (line_id,))
+        return True
+
     def create_supplier_quote(self, fields, actor_id):
         now = int(time.time())
         with self._tx() as c:

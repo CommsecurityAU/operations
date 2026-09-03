@@ -346,6 +346,77 @@ class TestARebuildKeepsWhatItRebuilt(unittest.TestCase):
         self.assertIn("invoiced_prior_cents <= purchase_order_cents", table)
 
 
+class TestNoBackupScriptCopiesTheLiveDatabase(unittest.TestCase):
+    """A WAL database copied mid-transaction yields a `.db` and a `-wal`
+    that disagree, and the copy fails only at RESTORE — on the day you
+    need it.
+
+    Both sync scripts copy `backups/` and `documents/` and nothing else.
+    The snapshots come from `VACUUM INTO` and are consistent by
+    construction; the blobs are immutable. This checks the absence, because
+    the absence is the whole design and a well-meant line adding `ops.db`
+    would look like an improvement.
+    """
+
+    def scripts(self):
+        folder = os.path.join(ROOT, "tools")
+        for name in ("offbox_sync.sh", "offbox_sync.ps1"):
+            path = os.path.join(folder, name)
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    yield name, f.read()
+
+    def test_the_windows_script_does_not_depend_on_the_working_directory(self):
+        """A scheduled task runs from `system32`.
+
+        The first version defaulted `-Source` to the relative path `data`,
+        which resolved to `C:\\Windows\\system32\\data` under the scheduler
+        and failed every hour while the task showed as Ready. **A backup
+        that never runs is worse than no backup, because it is believed.**
+        """
+        path = os.path.join(ROOT, "tools", "offbox_sync.ps1")
+        with open(path, encoding="utf-8") as f:
+            body = f.read()
+        self.assertIn("$PSScriptRoot", body,
+                      "source path is not resolved from the script location")
+        self.assertNotIn('$Source = "data"', body,
+                         "a relative default resolves against the caller's "
+                         "working directory")
+
+    def test_both_scripts_exist(self):
+        """The VM has one and the laptop has the other. The laptop is where
+        the only copy currently lives."""
+        self.assertEqual(sorted(n for n, _b in self.scripts()),
+                         ["offbox_sync.ps1", "offbox_sync.sh"])
+
+    def test_none_of_them_copies_the_live_database(self):
+        for name, body in self.scripts():
+            for line in body.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("#") or stripped.startswith("<#"):
+                    continue
+                if re.search(r"\bops\.db\b", stripped) \
+                        and ("rsync" in stripped or "robocopy" in stripped
+                             or "Copy-Item" in stripped):
+                    self.fail(f"{name}: copies the live database: {stripped}")
+
+    def test_they_copy_only_backups_and_documents(self):
+        for name, body in self.scripts():
+            for line in body.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue
+                # An INVOCATION, not a mention. `command -v rsync` checks
+                # the tool is installed and copies nothing -- flagging it
+                # would be a check that cries wolf on its own script.
+                if not re.match(r"^(rsync|robocopy|\$rc = robocopy)\b",
+                                stripped):
+                    continue
+                self.assertTrue(
+                    "backups" in stripped or "documents" in stripped,
+                    f"{name}: copies something else: {stripped}")
+
+
 class TestFilesAreWhereTheyBelong(unittest.TestCase):
     """Misplaced files have cost real time twice: `ops/static/main.py` (the
     app entrypoint copied into the PUBLISHED asset directory) and

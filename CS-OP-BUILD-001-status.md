@@ -784,6 +784,25 @@ replaced it, with nothing to remove the estimate. That produced ADR-56 —
 real** — with money that has moved refused from deletion and the whole row
 written to the audit log before it goes.
 
+## Backups, 3 September — the single point of failure is closed
+
+The hourly snapshotter had been running all week and every snapshot sat on
+the disk it protected. Now:
+
+    C:\Dev\operations\data\backups    hourly VACUUM INTO, 48 kept
+    D:\backup\cs-ops\backups          hourly copy, 90 days kept
+    restore --check                    integrity, schema, AND the register
+                                       reconciling
+
+**Everything built this week now exists in two places, and the restore has
+been proven rather than assumed.**
+
+The first version of the sync would have failed silently every hour
+(ADR-59): `-Source` defaulted to a relative path and a scheduled task runs
+from `system32`, so it resolved to `C:\Windows\system32\data` while the
+task showed Ready. Windows also defaults scheduled tasks to stopping on
+battery — for a laptop, that means not running.
+
 ### Still open, none blocking
 
 - **ABNs** on all 94 suppliers; one without is withheld at 47%.
@@ -804,7 +823,7 @@ cd C:\Dev\operations
 Get-ChildItem -Recurse -File | Unblock-File
 .\dev.ps1                 # serve on 5173, then sign in with Google
 .\dev.ps1 -Stale          # code AND assets, against the delivered values
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 971
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 975
 ```
 
 Fingerprints: code `87d88f560fec`, assets `30accee3f171`.

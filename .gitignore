@@ -5,7 +5,9 @@ __pycache__/
 *.db-shm
 data/
 .venv/
-
+.env.local
 dev.local.ps1
 
 imports/
+
+.env.local

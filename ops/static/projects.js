@@ -20,15 +20,27 @@ const COLUMNS = [
   { key: "project_lead", label: "Lead", cls: () => "muted text",
     fmt: (v) => v || "\u2013" },
   { key: "contract_value_cents", label: "Contract", align: "right",
+    title: "What the job is worth.",
     fmt: fmt.moneyDash, cls: (v) => ["secondary", zero(v)].filter(Boolean).join(" ") },
   // What the customer has actually raised an order for. On a job where POs
   // arrive as the work does, the gap against Contract is what has not been
   // ordered yet -- which the workbook could not show at all.
-  { key: "ordered_cents", label: "Ordered", align: "right",
+  // `Customer POs`, not `Ordered`. It sat beside `Orders in hand`, which
+  // is the register's phrase for `contract - invoiced` and has nothing to
+  // do with a customer order -- two adjacent columns using `order` for
+  // different things, which is exactly how `purchase_order_cents` came to
+  // mean contract value (ADR-34).
+  { key: "ordered_cents", label: "Customer POs", align: "right",
+    title: "What the customer has raised a purchase order for. A dash "
+           + "means nobody has entered one \u2014 not that the customer "
+           + "has not ordered.",
     fmt: fmt.moneyDash, cls: (v) => (v ? "secondary" : "secondary zero") },
   { key: "invoiced_prior_cents", label: "Invoiced prior", align: "right",
     fmt: fmt.moneyDash, cls: (v) => ["secondary", zero(v)].filter(Boolean).join(" ") },
   { key: "orders_in_hand_cents", label: "Orders in hand", align: "right",
+    title: "Contract less what has been invoiced: still to bill. The "
+           + "register's own phrase, and nothing to do with a customer "
+           + "order.",
     fmt: fmt.moneyDash,
     cls: (v) => (v < 0 ? "neg" : (v === 0 ? "zero" : "primary")) },
 ];
@@ -115,7 +127,7 @@ export async function render(root) {
   const figures = {
     projects: figure("Projects"),
     contract: figure("Contract value"),
-    ordered: figure("Ordered"),
+    ordered: figure("Customer POs"),
     prior: figure("Invoiced prior"),
     oih: figure("Orders in hand", "is-primary"),
     retention: figure("Retention held"),

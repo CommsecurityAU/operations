@@ -276,6 +276,161 @@ class TestTypeColoursStayQuiet(unittest.TestCase):
             self.assertNotIn("type-chip", body, f"{name} builds its own chip")
 
 
+class TestTheScreensLookLikeEachOther(unittest.TestCase):
+    """A screen that puts its controls somewhere different is a screen
+    somebody has to learn separately.
+
+    The convention, read off the screens that already agreed: ACTIONS in
+    the page head, FILTERS and the export in the bar above the table.
+    Office expenses had all of them crowded into the heading.
+
+    The first version of this test asserted the opposite -- that the head
+    carried no buttons -- because I wrote it from an assumption instead of
+    from the code. `projects.js` has had `New project` in its head since
+    STP-1. It also PASSED a deliberate violation, which is the worse half:
+    a guardrail that cannot fail is not a guardrail. This one is checked
+    against a mutation both ways.
+    """
+
+    SCREENS = ("projects.js", "claims.js", "worklist.js", "schedules.js",
+               "procurement.js", "expenses.js", "dashboard.js")
+
+    def page_head(self, name):
+        """The head, found by BALANCING PARENTHESES rather than by looking
+        for the next line at the right indent.
+
+        The indent version swallowed the whole of `schedules.js`, which has
+        no such line after its head -- and then reported a filter in the
+        page head that was really in the table five hundred lines down.
+        """
+        body = code_only(read(os.path.join(STATIC, name)))
+        start = body.find('h("div", { class: "page-head"')
+        if start < 0:
+            return None
+        depth = 0
+        for i in range(start, len(body)):
+            if body[i] == "(":
+                depth += 1
+            elif body[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    return body[start:i + 1]
+        return body[start:]
+
+    def test_every_screen_has_a_page_head(self):
+        for name in self.SCREENS:
+            self.assertIsNotNone(self.page_head(name), name)
+
+    def test_no_filter_lives_in_the_page_head(self):
+        """Filters belong in the bar above the table, on every screen."""
+        for name in self.SCREENS:
+            head = self.page_head(name)
+            for marker in ("filter", "Collapse all", "Expand all",
+                           "Export CSV"):
+                self.assertNotIn(marker, head, f"{name}: {marker!r} in head")
+
+    def test_the_mutation_is_caught(self):
+        """Proving the extractor finds the head at all -- the first version
+        matched nothing and passed everything."""
+        head = self.page_head("expenses.js")
+        self.assertIn("Office expenses", head)
+        self.assertIn("New line", head)
+        self.assertNotIn("Export CSV", head)
+
+
+
+class TestControlsAreOneSize(unittest.TestCase):
+    """Buttons in a page head are ordinary buttons; buttons in a table row
+    are smaller, because a row is 28px tall.
+
+    Procurement and Expenses put their header actions in a `.row-actions`
+    span and silently inherited the ROW sizing, so their headers had
+    smaller buttons than Projects and Schedules. Nobody chose that.
+    """
+
+    def test_the_row_sizing_is_scoped_to_rows(self):
+        css = code_only(read(os.path.join(STATIC, "base.css")))
+        self.assertIn("tbody .row-actions button", css)
+        self.assertIn(".page-head .row-actions button", css)
+
+    def test_a_bare_row_actions_rule_would_catch_both(self):
+        """The bug was a rule with no scope. If one comes back, this
+        says so."""
+        css = code_only(read(os.path.join(STATIC, "base.css")))
+        for line in css.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(".row-actions button"):
+                self.fail("unscoped `.row-actions button` rule: it applies "
+                          "to page heads and table rows alike")
+
+
+class TestChartsUseTheTokens(unittest.TestCase):
+    """A chart is where a palette gets invented. `chart.js` takes its
+    colours from its caller and the caller names design tokens, so the
+    charts cannot drift from the rest of the interface.
+
+    This is the rule the platform already applies to CSS (§7); a chart
+    drawing `#4A90D9` because it looked nice is the same fault in a place
+    the CSS scan cannot see.
+    """
+
+    def test_no_literal_colour_in_the_chart_module(self):
+        body = code_only(read(os.path.join(STATIC, "chart.js")))
+        found = re.findall(r"#[0-9a-fA-F]{3,8}\b", body)
+        self.assertEqual(found, [], "literal colours in chart.js")
+
+    def test_no_screen_carries_a_literal_colour(self):
+        """EVERY string, not just the ones written as `color:`.
+
+        The first version of this checked `color: "..."` only, and my own
+        mutation went into a `PROJECT_COLOURS` array where it never
+        looked -- the test passed a deliberate violation.
+
+        A hex FALLBACK counts. `var(--type-icn, #6a7a9f)` is a literal that
+        only shows itself when the token is missing, which is exactly when
+        nobody is looking; and that token already existed, so the fallback
+        was dead code pretending to be a safety net.
+        """
+        for name, path in static_files((".js",)):
+            body = code_only(read(path))
+            for literal in re.findall(r'"([^"\n]*#[0-9a-fA-F]{3,8}[^"\n]*)"',
+                                      body):
+                self.fail(f"{name}: literal colour in {literal!r}")
+
+
+class TestNoInlineStyles(unittest.TestCase):
+    """The Content-Security-Policy is `default-src 'self'`, which blocks
+    inline `style` attributes.
+
+    A style set from a script is dropped SILENTLY: the chart legend
+    rendered grey beside correctly coloured bars, because the bars use the
+    SVG `fill` attribute and the legend used CSS. Nothing errored and
+    nothing in the console said why.
+    """
+
+    def test_no_screen_sets_a_style_attribute(self):
+        for name, path in static_files((".js",)):
+            body = code_only(read(path))
+            # A TEMPLATE literal, which is how a computed style is built.
+            # `style: "currency"` is `Intl.NumberFormat`'s option and has
+            # nothing to do with the DOM -- a check that flagged it would
+            # be a check somebody learns to ignore.
+            found = re.findall(r"\bstyle:\s*`", body)
+            self.assertEqual(found, [],
+                             f"{name}: inline style, blocked by the CSP")
+            for line in body.splitlines():
+                if re.search(r'setAttribute\(\s*["\']style["\']', line):
+                    self.fail(f"{name}: setAttribute('style'), "
+                              "blocked by the CSP")
+
+    def test_the_policy_is_still_what_this_assumes(self):
+        """If the policy ever gains `unsafe-inline`, the rule above is
+        pointless and somebody should decide that deliberately."""
+        body = read(os.path.join(ROOT, "ops", "http_util.py"))
+        self.assertIn('"Content-Security-Policy": "default-src \'self\'"',
+                      body)
+
+
 class TestTheScreensSeeWhatTheyEdit(unittest.TestCase):
     """A field a dialog shows and its view omits comes back BLANK and is
     saved as blank, erasing it. `expense_line.note` did exactly that.
@@ -337,6 +492,40 @@ class TestEveryScreenHasALink(unittest.TestCase):
         self.assertEqual(missing, [],
                          "registered but not linked; reachable only by URL")
 
+    def test_a_role_gated_screen_is_hidden_without_the_role(self):
+        """A tab for a screen this person cannot open is a tab that goes to
+        a refusal. Hiding it is NOT the control -- the server refuses -- but
+        a navigation offering doors nobody can walk through is a navigation
+        nobody trusts.
+
+        The map has to name every screen whose module declares a role above
+        the baseline, or a tab appears for a screen that will refuse it.
+        """
+        import re as _re
+        shell = code_only(read(os.path.join(STATIC, "main.js")))
+        block = _re.search(r"const NEEDS = \{(.*?)\};", shell, _re.S)
+        self.assertIsNotNone(block, "main.js has no NEEDS map")
+        listed = set(_re.findall(r"(\w+):", block.group(1)))
+
+        # Which modules actually require more than `viewer`.
+        gated = set()
+        modules = os.path.join(ROOT, "ops", "modules")
+        for name in os.listdir(modules):
+            if not name.endswith(".py") or name == "__init__.py":
+                continue
+            body = open(os.path.join(modules, name), encoding="utf-8").read()
+            found = _re.search(r'^ROLE(?:_READ)? = "(\w+)"', body, _re.M)
+            if found and found.group(1) not in ("viewer", "public"):
+                gated.add(name[:-3])
+        # `claims` is served at `#claims` and `procurement` at
+        # `#procurement`; only the ones needing more than viewer matter.
+        for screen in sorted(gated):
+            if screen in ("claims", "projects", "worklist", "schedules",
+                          "claimplan", "procurement"):
+                continue
+            self.assertIn(screen, listed,
+                          f"{screen} needs a role and is not in NEEDS")
+
     def test_every_link_goes_somewhere(self):
         broken = sorted(self.nav_targets() - self.registered_screens())
         self.assertEqual(broken, [], "linked but no screen is registered")
@@ -382,6 +571,49 @@ class TestNothingIsUsedUndeclared(unittest.TestCase):
                 "Object", "Array", "String", "Boolean", "Date", "Promise",
                 "Intl", "NaN", "FormData", "Blob", "Error", "RegExp",
                 "GET", "POST", "PATCH", "DELETE", "PUT"}
+
+    #: Names that hold a fetched payload in these modules. Not every
+    #: identifier -- that needs a parser -- but the ones that have actually
+    #: gone wrong. `data.coverage` was written in `claims.js`, where the
+    #: payload is called `payload`, and shipped: `ReferenceError: data is
+    #: not defined`, on load, for everyone.
+    PAYLOAD_NAMES = ("data", "payload", "body", "result", "rows", "me")
+
+    def declared_names(self, body):
+        """Everything the file introduces: declarations, parameters,
+        destructuring, imports, and catch bindings."""
+        names = set()
+        names.update(re.findall(
+            r"\b(?:const|let|var|function|class)\s+([a-zA-Z_$][\w$]*)", body))
+        # Parameters, loosely: anything between the parens of a function or
+        # arrow. Loose is correct here -- a false NEGATIVE costs nothing
+        # and a false positive fails a good build.
+        for params in re.findall(r"\(([^()]*)\)\s*(?:=>|\{)", body):
+            names.update(re.findall(r"[a-zA-Z_$][\w$]*", params))
+        names.update(re.findall(r"(?:const|let|var)\s*\{([^}]*)\}", body)
+                     and re.findall(r"[a-zA-Z_$][\w$]*",
+                                    " ".join(re.findall(
+                                        r"(?:const|let|var)\s*\{([^}]*)\}",
+                                        body))))
+        names.update(re.findall(r"\[([^\]]*)\]\s*=", body)
+                     and re.findall(r"[a-zA-Z_$][\w$]*",
+                                    " ".join(re.findall(r"\[([^\]]*)\]\s*=",
+                                                        body))))
+        for line in re.findall(r"^\s*import\s+\{([^}]*)\}", body, re.M):
+            names.update(part.strip().split(" as ")[-1].strip()
+                         for part in line.split(","))
+        names.update(re.findall(r"catch\s*\(\s*([\w$]+)", body))
+        return names
+
+    def test_a_payload_name_is_declared_before_it_is_read(self):
+        for name, path in static_files((".js",)):
+            body = code_only(read(path))
+            declared = self.declared_names(body)
+            for candidate in self.PAYLOAD_NAMES:
+                if re.search(rf"(?<![.\w$]){candidate}\.", body) \
+                        and candidate not in declared:
+                    self.fail(f"{name}: reads `{candidate}.` and never "
+                              f"declares {candidate}")
 
     def test_the_scan_would_catch_a_missing_declaration(self):
         """Mutation, because a scan that matches nothing passes silently."""

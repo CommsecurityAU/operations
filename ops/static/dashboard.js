@@ -14,9 +14,15 @@
 // because a dashboard that mixes them silently is one nobody can act on.
 
 import { api, fmt, h, mount, stateMessage } from "./app.js";
+import { combo } from "./chart.js";
 
 let pending = null;
 let showing = null;
+// Charts, tables, or both. TABLES on load: the figure somebody came for is
+// in the table, and a chart is what they open when the figure raises a
+// question. Kept across repaints -- a mode somebody chose is one they want
+// to stay in.
+let mode = "tables";
 
 function figure(label, kind) {
   const value = document.createTextNode("");
@@ -28,45 +34,6 @@ function figure(label, kind) {
       h("span", { class: "sub muted" }, note)),
     set: (v, n) => { value.nodeValue = v; note.nodeValue = n || ""; },
   };
-}
-
-// A bar per month, drawn as SVG rather than pulled from a charting library:
-// twelve rectangles and a zero line is not worth 90 KB, and the tokens are
-// already here.
-function barChart(months, pick, title) {
-  const values = months.map(pick);
-  const top = Math.max(1, ...values.map(Math.abs));
-  // Lower case because they are locals. A CAPS name inside a function
-  // reads as a module constant to anyone scanning, including the guardrail
-  // that checks every module constant is declared.
-  const barWidth = 22, gap = 6, height = 72;
-  const width = months.length * (barWidth + gap);
-  const zero = height / 2;
-  return h("figure", { class: "chart" },
-    h("figcaption", null, title),
-    h("svg", {
-      viewBox: `0 0 ${width} ${height + 16}`, class: "bars",
-      role: "img", "aria-label": title,
-    },
-      h("line", { x1: "0", y1: String(zero), x2: String(width),
-                  y2: String(zero), class: "axis" }),
-      months.map((month, i) => {
-        const v = values[i];
-        const bar = Math.abs(v) / top * (height / 2 - 2);
-        return h("g", null,
-          h("rect", {
-            x: String(i * (barWidth + gap)),
-            y: String(v >= 0 ? zero - bar : zero),
-            width: String(barWidth), height: String(Math.max(1, bar)),
-            class: (v >= 0 ? "up" : "down")
-                   + (month.is_actual ? " actual" : " projected"),
-          }, h("title", null,
-               `${month.label}  ${fmt.money(v)}`
-               + (month.is_actual ? "" : "  (projected)"))),
-          h("text", { x: String(i * (barWidth + gap) + barWidth / 2),
-                      y: String(height + 12), class: "tick" },
-            month.label.slice(0, 3)));
-      })));
 }
 
 export async function render(root) {
@@ -104,12 +71,15 @@ export async function render(root) {
   const cards = {
     revenue: figure("Invoiceable", "is-primary"),
     invoiced: figure("Invoiced to date"),
-    orders: figure("Orders in hand"),
-    project: figure("Project cost"),
-    office: figure("Office cost"),
+    // Under contract and owed to us: the only green on the screen.
+    orders: figure("Orders in hand", "is-good"),
+    // Costs and the deduction read quietly. They are present and they are
+    // not what anybody opens this to see.
+    project: figure("Project cost", "is-quiet"),
+    office: figure("Office cost", "is-quiet"),
     total: figure("Total cost"),
     gross: figure("Gross profit", "is-primary"),
-    tax: figure("Corporate tax"),
+    tax: figure("Corporate tax", "is-quiet"),
     net: figure("Net profit"),
   };
   // What is under contract and not yet billed. A whole-of-portfolio figure
@@ -151,21 +121,27 @@ export async function render(root) {
     render(root);
   });
 
+  // The TOTAL sits beside the label, not eleven columns away. It is the
+  // figure most often wanted and it was the one furthest from the eye.
   const row = (label, key, cls) => h("tr", { class: cls || null },
     h("th", null, label),
-    months.map((m) => h("td", { class: "num" }, fmt.money(m[key]))),
-    h("th", { class: "num" }, fmt.money(sum(months, key))));
-
-  // Which projects are actually carrying the year. Not every project: the
-  // ten that matter, because a list of sixty-five is a list nobody reads.
-  const carrying = [...data.projects]
-    .filter((p) => p.contract_value_cents)
-    .sort((a, b) => b.contract_value_cents - a.contract_value_cents)
-    .slice(0, 10);
+    h("th", { class: "num total-col" }, fmt.money(sum(months, key))),
+    months.map((m) => h("td", { class: "num" }, fmt.money(m[key]))));
 
   const byCategory = data.expense_categories
     .filter((c) => c.fy_label === showing)
     .sort((a, b) => b.total_cents - a.total_cents);
+
+  // Projects still to bill, largest first. A contract that has been fully
+  // invoiced is finished business: it belongs in the history, not in a
+  // list of what the year is carrying.
+  //
+  // As many rows as the cost breakdown beside it, so the two panels are
+  // the same height and the page balances.
+  const carrying = [...data.projects]
+    .filter((p) => p.orders_in_hand_cents > 0)
+    .sort((a, b) => b.orders_in_hand_cents - a.orders_in_hand_cents)
+    .slice(0, Math.max(byCategory.length, 5));
 
   // Project by month: where the year's revenue actually comes from. Only
   // projects with something in the year -- sixty-five rows of which forty
@@ -186,17 +162,28 @@ export async function render(root) {
   const columnTotal = (i) => inYear.reduce(
     (t, r) => t + (r.cells[i] ? r.cells[i].amount_cents : 0), 0);
 
+  // Six named projects and everything else. A stack of thirty is a stack
+  // nobody can read, and the tail is individually too small to see.
+  // Classes, not colours: the CSP blocks inline styles, so a colour named
+  // here would never reach the page. `base.css` holds what each one is.
+  const PROJECT_COLOURS = [
+    "s-p0", "s-p1", "s-p2", "s-p3", "s-p4", "s-p5",
+  ];
+  const topProjects = inYear.slice(0, 6);
+  const otherRows = inYear.slice(6);
+
   function invoicingTable() {
     return h("div", null,
       h("h2", null, `Invoicing by project \u00b7 ${showing}`),
-      h("div", { class: "table-wrap" },
-        h("table", { class: "expense-grid" },
+      h("div", { class: "table-wrap fit-wrap" },
+        h("table", { class: "expense-grid fit" },
           h("thead", null, h("tr", null,
             h("th", null, `${inYear.length} projects`),
-            months.map((m) => h("th", { class: "num" }, m.label)),
-            h("th", { class: "num" }, "Total"))),
+            h("th", { class: "num total-col" }, "Total"),
+            months.map((m) => h("th", { class: "num" }, m.label)))),
           h("tbody", null, inYear.map((row) => h("tr", null,
             h("td", { class: "text-wide" }, row.project.name),
+            h("th", { class: "num total-col" }, fmt.money(row.total)),
             row.cells.map((cell) => h("td",
               { class: cell ? "num" : "num zero",
                 // Billed and forecast look different: one is a fact.
@@ -207,14 +194,13 @@ export async function render(root) {
                     ? h("span", { class: "invoiced" },
                         fmt.money(cell.amount_cents))
                     : fmt.money(cell.amount_cents))
-                : "\u2013")),
-            h("th", { class: "num" }, fmt.money(row.total))))),
+                : "\u2013"))))),
           h("tfoot", null, h("tr", null,
             h("th", null, "Total"),
+            h("th", { class: "num total-col" },
+              fmt.money(inYear.reduce((t, r) => t + r.total, 0))),
             months.map((_m, i) => h("th", { class: "num" },
-              fmt.money(columnTotal(i)))),
-            h("th", { class: "num" },
-              fmt.money(inYear.reduce((t, r) => t + r.total, 0))))))));
+              fmt.money(columnTotal(i)))))))));
   }
 
   mount(root, h("div", { class: "content" },
@@ -223,6 +209,21 @@ export async function render(root) {
       h("span", { class: "eyebrow" }, "revenue, cost, and what is left"),
       h("span", { class: "spacer" }),
       h("span", { class: "row-actions" },
+        // Charts, tables, or both. The default is both: the chart shows
+        // the shape and the table has the figure somebody needs to quote.
+        ...[["charts", "Charts"], ["both", "Both"], ["tables", "Tables"]]
+          .map(([value, label]) => {
+            const button = h("button", {
+              type: "button",
+              class: mode === value ? "primary" : null,
+              "aria-pressed": String(mode === value),
+            }, label);
+            button.addEventListener("click", () => {
+              mode = value;
+              render(root);
+            });
+            return button;
+          }),
         h("span", { class: "muted" },
           `${data.active_projects} active project`
           + `${data.active_projects === 1 ? "" : "s"} \u00b7 `
@@ -231,22 +232,40 @@ export async function render(root) {
         picker)),
     notice,
     h("div", { class: "figures" }, Object.values(cards).map((f) => f.el)),
-    months.length
-      ? h("div", { class: "charts" },
-          barChart(months, (m) => m.revenue_cents, "Revenue by month"),
-          barChart(months, (m) => m.total_cost_cents, "Cost by month"),
-          barChart(months, (m) => m.gross_profit_cents,
-                   "Gross profit by month"))
+    months.length && mode !== "tables"
+      ? combo(
+          months.map((m) => ({
+            label: m.label.slice(0, 3),
+            projected: !m.is_actual,
+            project_cost_cents: m.project_cost_cents,
+            office_cost_cents: m.office_cost_cents,
+            revenue_cents: m.revenue_cents,
+            gross_profit_cents: m.gross_profit_cents,
+          })),
+          [
+            // Cost stacked, because the two together are what revenue has
+            // to cover. Revenue and profit as lines over it: the question
+            // is whether the line clears the column.
+            { key: "project_cost_cents", label: "Project cost", kind: "bar",
+              stack: "cost", cls: "s-project" },
+            { key: "office_cost_cents", label: "Office cost", kind: "bar",
+              stack: "cost", cls: "s-office" },
+            { key: "revenue_cents", label: "Revenue", kind: "line",
+              cls: "s-revenue" },
+            { key: "gross_profit_cents", label: "Gross profit", kind: "line",
+              cls: "s-profit" },
+          ],
+          { title: `Revenue against cost \u00b7 ${showing}` })
       : null,
-    months.length
-      ? h("div", { class: "table-wrap" },
-          h("table", { class: "expense-grid" },
+    months.length && mode !== "charts"
+      ? h("div", { class: "table-wrap fit-wrap" },
+          h("table", { class: "expense-grid fit" },
             h("thead", null, h("tr", null,
               h("th", null, showing),
+              h("th", { class: "num total-col" }, "Total"),
               months.map((m) => h("th", { class: "num" },
                 m.label, m.is_actual ? null
-                  : h("span", { class: "tag is-quiet" }, "proj"))),
-              h("th", { class: "num" }, "Total"))),
+                  : h("span", { class: "tag is-quiet" }, "proj"))))),
             h("tbody", null,
               row("Revenue", "revenue_cents"),
               row("Project cost", "project_cost_cents"),
@@ -254,27 +273,40 @@ export async function render(root) {
               row("Total cost", "total_cost_cents"),
               row("Gross profit", "gross_profit_cents", "group")),
             h("tfoot", null, h("tr", null,
-              h("th", null, "Corporate tax and net profit"),
+              h("th", null, "Net profit"),
+              h("th", { class: "num total-col" },
+                fmt.money(year.net_profit_cents || 0)),
               h("td", { class: "num muted",
                         colspan: String(months.length) },
-                "assessed on the year, not the month"),
-              h("th", { class: "num" },
-                fmt.money(year.net_profit_cents || 0))))))
+                "after corporate tax, assessed on the year")))))
       : stateMessage("Nothing for this year yet", null, false),
+    // Two panels side by side: the cost breakdown is a narrow list of
+    // categories and does not want the whole width, while the contract
+    // table has four columns and does. Sized to their content rather than
+    // splitting the page in half.
+    // No chart for these two: a ranked bar directly above the table it is
+    // drawn from says the same thing twice, and the table also carries the
+    // figures. They stay as tables in every mode.
     h("div", { class: "split" },
-      h("div", null,
+      h("div", { class: "panel narrow" },
         h("h2", null, "Where the cost sits"),
-        h("table", null,
+        h("table", { class: "tight fit" },
           h("thead", null, h("tr", null,
-            h("th", null, "Category"), h("th", { class: "num" }, "Lines"),
-            h("th", { class: "num" }, showing))),
+            h("th", null, "Category"),
+            h("th", { class: "num" }, showing),
+            h("th", { class: "num" }, "Lines"))),
           h("tbody", null, byCategory.map((c) => h("tr", null,
             h("td", null, c.name),
-            h("td", { class: "num muted" }, String(c.line_count)),
-            h("td", { class: "num" }, fmt.money(c.total_cents))))))),
-      h("div", null,
-        h("h2", null, "Largest contracts"),
-        h("table", null,
+            h("td", { class: "num" }, fmt.money(c.total_cents)),
+            h("td", { class: "num muted" }, String(c.line_count))))),
+          h("tfoot", null, h("tr", null,
+            h("th", null, "Total"),
+            h("th", { class: "num" },
+              fmt.money(byCategory.reduce((t, c) => t + c.total_cents, 0))),
+            h("th", null, ""))))),
+      h("div", { class: "panel" },
+        h("h2", null, "Largest contracts still to bill"),
+        h("table", { class: "tight fit" },
           h("thead", null, h("tr", null,
             h("th", null, "Project"),
             h("th", { class: "num" }, "Contract"),
@@ -285,8 +317,41 @@ export async function render(root) {
             h("td", { class: "num" }, fmt.money(p.contract_value_cents)),
             h("td", { class: "num" }, fmt.money(p.orders_in_hand_cents)),
             h("td", { class: "num muted" },
-              fmt.money(p.committed_cents + p.estimated_cents)))))))),
-    inYear.length ? invoicingTable() : null,
+              fmt.money(p.committed_cents + p.estimated_cents))))),
+          h("tfoot", null, h("tr", null,
+            h("th", null, "Total"),
+            h("th", { class: "num" },
+              fmt.money(carrying.reduce(
+                (t, p) => t + p.contract_value_cents, 0))),
+            h("th", { class: "num" },
+              fmt.money(carrying.reduce(
+                (t, p) => t + p.orders_in_hand_cents, 0))),
+            h("th", null, "")))))),
+    // Who makes up each month. The monthly TOTALS are already the revenue
+    // line above, so repeating them would be a second drawing of the same
+    // fact; what this table knows and no chart yet shows is which projects
+    // the money comes from.
+    inYear.length && mode !== "tables"
+      ? combo(
+          months.map((m, i) => {
+            const row = { label: m.label.slice(0, 3) };
+            topProjects.forEach((p, n) => {
+              row[`p${n}`] = p.cells[i] ? p.cells[i].amount_cents : 0;
+            });
+            row.other = otherRows.reduce(
+              (t, r) => t + (r.cells[i] ? r.cells[i].amount_cents : 0), 0);
+            return row;
+          }),
+          topProjects.map((p, n) => ({
+            key: `p${n}`, label: p.project.name, kind: "bar", stack: "inv",
+            cls: PROJECT_COLOURS[n % PROJECT_COLOURS.length],
+          })).concat(otherRows.length
+            ? [{ key: "other", label: `${otherRows.length} others`,
+                 kind: "bar", stack: "inv", cls: "s-office" }]
+            : []),
+          { title: `Invoicing by project \u00b7 ${showing}` })
+      : null,
+    inYear.length && mode !== "charts" ? invoicingTable() : null,
     h("p", { class: "muted note" },
       "Office cost is not charged to projects \u2014 "
       + "rent and payroll tax are not bought for a job, and spreading them "

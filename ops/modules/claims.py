@@ -224,8 +224,71 @@ def register(router: Router, db: Db) -> None:
                 f"""SELECT project_id, held_cents FROM v_project_retention
                     WHERE project_id IN ({marks2}) AND held_cents <> 0""",
                 tuple(project_ids))}
+        # HOW MUCH OF WHAT IS LEFT TO BILL SITS IN NO MONTH.
+        #
+        # `orders in hand` is contract less invoiced: everything still to
+        # bill. The forecast is what has actually been put into a month. If
+        # the forecasting is complete the two agree, and where they do not
+        # the difference is either work nobody has scheduled or a month
+        # carrying more than the contract allows.
+        #
+        # Per project, because that is where it is fixed. A portfolio total
+        # would net an under-forecast job against an over-forecast one and
+        # report that everything is fine.
+        coverage = {}
+        for row in db.query(
+                f"""SELECT v.project_id, v.project_name, v.job_code,
+                           v.contract_value_cents, v.orders_in_hand_cents,
+                           COALESCE((SELECT SUM(cl.amount_cents)
+                                     FROM claim_line cl
+                                     WHERE cl.project_id = v.project_id
+                                       AND cl.is_opening_balance = 0
+                                       AND cl.status NOT IN ('invoiced','paid')
+                                    ), 0) AS forecast_cents
+                    FROM v_project_orders_in_hand v
+                    WHERE v.entity_id IN ({','.join('?' * len(ids))})""",
+                tuple(ids)):
+            gap = row["orders_in_hand_cents"] - row["forecast_cents"]
+            coverage[row["project_id"]] = {
+                "project_id": row["project_id"],
+                "project_name": row["project_name"],
+                "job_code": row["job_code"],
+                "contract_value_cents": row["contract_value_cents"],
+                "orders_in_hand_cents": row["orders_in_hand_cents"],
+                "forecast_cents": row["forecast_cents"],
+                "gap_cents": gap,
+                # A dollar is rounding in the source, not a finding: amber
+                # on half the register for a cent teaches the eye to skip
+                # the check.
+                # Wording that survives being read on a CLAIM row. Every
+                # claim of a project carries its project's state, so
+                # `not forecast` beside a forecast claim reads as a
+                # contradiction -- and `25-35 River Boulevard` showed it on
+                # twelve rows while being short by $2,000 in total.
+                "state": ("complete" if abs(gap) <= 100
+                          else "project under" if gap > 0
+                          else "project over"),
+            }
+        for row in rows:
+            found = coverage.get(row["project_id"])
+            row["coverage"] = found["state"] if found else "complete"
+            row["coverage_gap_cents"] = found["gap_cents"] if found else 0
+
         return 200, {
             "claims": rows,
+            "coverage": sorted(coverage.values(),
+                               key=lambda c: -abs(c["gap_cents"])),
+            "coverage_totals": {
+                "not_forecast_cents": sum(
+                    c["gap_cents"] for c in coverage.values()
+                    if c["state"] == "project under"),
+                "over_forecast_cents": sum(
+                    -c["gap_cents"] for c in coverage.values()
+                    if c["state"] == "project over"),
+                "projects_not_forecast": sum(
+                    1 for c in coverage.values()
+                    if c["state"] == "project under"),
+            },
             "retention_by_project": by_project,
             "totals": {
                 s: sum(r["amount_cents"] for r in rows if r["status"] == s)

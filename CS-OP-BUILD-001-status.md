@@ -702,6 +702,62 @@ a rebuilt table against what it replaced.
 
 ---
 
+## The screens, 3 September
+
+A day of use produced a day of corrections, and two of them were faults
+rather than preferences.
+
+**Forecast coverage** (ADR-57). Invoicing now shows what is left to bill
+and sits in no month, per project, with a filter to find those projects.
+59 of 65 are covered; $2,800 is unscheduled and $102,180 is over-forecast,
+almost all of it the `88 Robertson St` variation already on the worklist.
+The cards read as a position: contract, invoiced, retention, orders in
+hand, forecast, not forecast, due, approved.
+
+**Charts on the dashboard** (ADR-58). A combo of stacked cost against
+revenue and profit lines, and invoicing stacked by project — with a
+Charts / Both / Tables toggle that opens on Tables. Four hundred lines of
+SVG rather than a charting library.
+
+**A delete for procurement** (ADR-56), found by a duplicate on
+`The Lindrum - ICN`: a $44,000 estimate superseded by the $39,600 purchase
+that replaced it.
+
+---
+
+## Three guardrails that did not work
+
+Worth recording because the pattern is the point.
+
+1. **A consistency test asserted the opposite of the truth.** Written from
+   an assumption — "no buttons in a page head" — when `projects.js` has had
+   `New project` there since STP-1. It also passed a deliberate violation,
+   because its extractor matched nothing.
+2. **A colour test checked only strings written as `color:`.** The
+   violation went into an array it never looked at. It also let through
+   `var(--type-icn, #6a7a9f)` — a hex fallback for a token that already
+   existed, so dead code pretending to be a safety net.
+3. **An inline-style test flagged `Intl.NumberFormat`'s `style` option.** A
+   check that cries wolf is a check people learn to ignore.
+
+All three now fail when they should, verified by breaking each. **Writing
+the test is not the job; watching it fail is.**
+
+---
+
+## And a class of bug the suite cannot see
+
+`ReferenceError: data is not defined` shipped in `claims.js` — the second
+JavaScript reference error to reach the browser, after `REMEMBERED` in
+`datatable.js`. Both broke a whole screen on load and both passed every
+test, because **the Python suite never executes the JavaScript.**
+
+There is now a scan for undeclared payload names on top of the CAPS one. It
+is a watchlist, not a parser, and says so. A third escape should mean
+running the modules in a JS environment rather than lengthening the list.
+
+---
+
 ## Resume point
 
 **Every phase is built and the data is resynced.** What remains is
@@ -748,10 +804,10 @@ cd C:\Dev\operations
 Get-ChildItem -Recurse -File | Unblock-File
 .\dev.ps1                 # serve on 5173, then sign in with Google
 .\dev.ps1 -Stale          # code AND assets, against the delivered values
-py -W error::ResourceWarning -m unittest discover -s tests   # expect 950
+py -W error::ResourceWarning -m unittest discover -s tests   # expect 971
 ```
 
-Fingerprints: code `9e20dfcc1063`, assets `d9220f3a0c09`.
+Fingerprints: code `87d88f560fec`, assets `30accee3f171`.
 Migrations applied: `001` through `024`.
 Roles: `viewer`, `operations`, `approver`, `admin`, `finance`, `payroll`.
 Imports live in `C:\Dev\operations\imports\` — gitignored; the exports

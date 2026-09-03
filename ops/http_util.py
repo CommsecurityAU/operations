@@ -229,7 +229,12 @@ class Handler(BaseHTTPRequestHandler):
             if self.router is None:
                 raise HttpError(500, "no router configured")
             fn, role, params = self.router.match(self.command, path)
-            if fn is None:
+            # Both, not just `fn`. They are always set or unset together,
+            # but a guard on one does not narrow the other -- and `**params`
+            # on None is a 500 that would only ever appear on a route that
+            # does not exist, which is the request least able to explain
+            # itself.
+            if fn is None or params is None:
                 # Names the PATH, not just "not found". A handler saying
                 # `not found` because an id is unknown and the router
                 # saying it because the route does not exist read

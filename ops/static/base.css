@@ -161,6 +161,13 @@ a:hover { text-decoration: underline; }
 .figure.is-primary .value { color: var(--accent); }
 .figure.is-attention .value { color: var(--warn); }   /* work to do */
 .figure.is-exception .value { color: var(--alarm); }  /* something is wrong */
+/* Money that is OWED TO US and under contract. The only green on the
+ * screen, so it means one thing. */
+.figure.is-good .value { color: var(--ok); }
+/* A cost, or a deduction. Present and not the point: reading the same
+ * weight as revenue would give them the same emphasis, and they are not
+ * the figures anybody opens this to see. */
+.figure.is-quiet .value { color: var(--t-2); }
 
 /* ---------------------------------------------------------- controls */
 .controls {
@@ -283,6 +290,15 @@ select.month-move:focus { border-color: var(--accent-dim); color: var(--accent);
   border: var(--border);
   background: var(--s-1);
   overflow-x: auto;
+}
+/* A wrapper that shrinks with the table inside it. Without this a fitted
+ * table centres inside a full-width bordered box, which moves the white
+ * space rather than removing it. */
+.table-wrap.fit-wrap {
+  width: fit-content;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 table { width: 100%; border-collapse: collapse; }
@@ -648,6 +664,163 @@ a.signin:hover { background: var(--s-2); text-decoration: none; }
 /* A link that has to look like a button: the export is a plain GET, so it
  * is an anchor rather than a fetch -- the browser then handles the download
  * and the Content-Disposition, which a fetch would have to reimplement. */
+/* A filter value as a CHIP: the whole thing is the target and the whole
+ * thing shows the state. A tick in a column of boxes asks the eye to find
+ * it; a chip that is on or off does not.
+ *
+ * The checkbox is still there and still does the work -- hidden visually,
+ * not removed, so the keyboard and a screen reader are unaffected. */
+.filter-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--u2);
+  max-width: 34ch;
+}
+label.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px var(--u3);
+  border: 1px solid var(--line);
+  /* Square, per §7. A pill would have read as a chip more obviously and
+   * the guardrail was right to refuse it: the geometry is the one thing
+   * every screen shares, and an exception here becomes an exception
+   * everywhere. Selection is carried by the border and the text. */
+  border-radius: var(--radius);
+  font-size: var(--fs-small);
+  color: var(--t-1);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+label.chip:hover { border-color: var(--accent-dim); }
+label.chip input {
+  /* Off-screen rather than display:none, which would take it out of the
+   * accessibility tree along with the keyboard. */
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+label.chip.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-wash, transparent);
+}
+label.chip input:focus-visible + span { text-decoration: underline; }
+
+/* A link that has to look like a button, matched to the real ones: the
+ * export is a plain GET, so it is an anchor and the browser handles the
+ * download. Sized from the same tokens as `button` so a row of controls
+ * does not step up and down. */
+/* The lifecycle, at the foot of the screen it describes. Narrow, because
+ * a paragraph the width of a monitor is a paragraph nobody reads. */
+.howto { max-width: 78ch; margin-top: var(--u6, 32px); }
+.howto h2 {
+  font-size: var(--fs-body);
+  margin-bottom: var(--u3);
+  padding-bottom: var(--u2);
+  border-bottom: 1px solid var(--line);
+}
+.howto ol { margin: 0 0 var(--u4); padding-left: var(--u5); }
+.howto li { margin-bottom: var(--u2); color: var(--t-1); }
+.howto li b { color: var(--accent); font-weight: normal; }
+.howto p b { color: var(--t-0); font-weight: normal; }
+
+/* ------------------------------------------------------------- charts */
+/* Room above and below. A chart butted against the table beneath it reads
+ * as part of the table. */
+.chart.wide { flex: 1 1 100%; margin: var(--u6, 32px) 0; }
+svg.plot { width: 100%; height: auto; display: block; }
+svg.plot .grid { stroke: var(--line); stroke-width: 1; opacity: 0.5; }
+svg.plot .axis { stroke: var(--line-strong); stroke-width: 1; }
+svg.plot .tick {
+  fill: var(--t-2);
+  /* In viewBox units, and the box is 960 wide rendered at about 700 --
+   * so this lands near 8px on screen. */
+  font-size: 11px;
+  font-family: var(--font-data);
+}
+svg.plot .tick.end { text-anchor: end; }
+svg.plot .tick.mid { text-anchor: middle; }
+/* A projection has not happened. Drawn lighter, not differently: a
+ * different shape would read as a different quantity. */
+svg.plot rect.projected { opacity: 0.45; }
+svg.plot .series-line { stroke-linejoin: round; stroke-linecap: round; }
+
+/* Title left, legend right, both above the plot. A legend underneath
+ * makes the eye leave the picture, find the key, and come back. */
+.chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--u4);
+  margin-bottom: var(--u2);
+}
+.chart-head figcaption { margin: 0; }
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--u3);
+  font-size: var(--fs-micro);
+}
+/* The label takes its series colour inline; this is only the fallback for
+ * anything that does not set one. */
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--u);
+  color: var(--t-2);
+}
+.swatch { width: 8px; height: 8px; display: inline-block; }
+
+/* Series colours, defined ONCE and used by the bar, the line, the marker
+ * and the legend alike. In CSS rather than passed from JavaScript because
+ * the Content-Security-Policy is `default-src 'self'`, which blocks inline
+ * `style` attributes -- colours set from a script were silently dropped
+ * and the legend rendered grey beside correctly coloured bars.
+ *
+ * `color` for the legend text, `fill` for bars and points, `stroke` for
+ * lines. One rule per series, so a colour cannot drift between them. */
+.s-project { color: var(--type-icn); }
+svg.plot .s-project { fill: var(--type-icn); stroke: var(--type-icn); }
+.s-project .swatch { background: var(--type-icn); }
+
+.s-office { color: var(--type-none); }
+svg.plot .s-office { fill: var(--type-none); stroke: var(--type-none); }
+.s-office .swatch { background: var(--type-none); }
+
+.s-revenue { color: var(--accent); }
+svg.plot .s-revenue { fill: var(--accent); stroke: var(--accent); }
+.s-revenue .swatch { background: var(--accent); }
+
+.s-profit { color: var(--ok); }
+svg.plot .s-profit { fill: var(--ok); stroke: var(--ok); }
+.s-profit .swatch { background: var(--ok); }
+
+.s-p0 { color: var(--type-icn); }
+svg.plot .s-p0 { fill: var(--type-icn); }
+.s-p0 .swatch { background: var(--type-icn); }
+.s-p1 { color: var(--type-service); }
+svg.plot .s-p1 { fill: var(--type-service); }
+.s-p1 .swatch { background: var(--type-service); }
+.s-p2 { color: var(--type-security); }
+svg.plot .s-p2 { fill: var(--type-security); }
+.s-p2 .swatch { background: var(--type-security); }
+.s-p3 { color: var(--type-qaccess); }
+svg.plot .s-p3 { fill: var(--type-qaccess); }
+.s-p3 .swatch { background: var(--type-qaccess); }
+.s-p4 { color: var(--type-rnd); }
+svg.plot .s-p4 { fill: var(--type-rnd); }
+.s-p4 .swatch { background: var(--type-rnd); }
+.s-p5 { color: var(--type-ems); }
+svg.plot .s-p5 { fill: var(--type-ems); }
+.s-p5 .swatch { background: var(--type-ems); }
+
+/* A line must not be filled by its own series rule. */
+svg.plot polyline.series-line { fill: none; }
+
+
 a.button {
   display: inline-flex;
   align-items: center;
@@ -658,12 +831,32 @@ a.button {
   color: var(--t-1);
   text-decoration: none;
   font-size: var(--fs-small);
+  white-space: nowrap;
+}
+
+/* Every control in a bar is the same height, whatever element it is.
+ * A select sized by the browser sat two pixels proud of the buttons
+ * beside it, which is the sort of thing nobody reports and everybody
+ * sees. */
+.controls > select,
+.controls > button,
+.controls > a.button {
+  height: var(--h-control);
+  font-size: var(--fs-small);
 }
 a.button:hover { border-color: var(--accent-dim); color: var(--accent); }
 
 /* Three small charts side by side. SVG, not a library: twelve rectangles
  * and a zero line is not worth ninety kilobytes. */
-.charts { display: flex; gap: var(--u5); flex-wrap: wrap; margin: var(--u5) 0; }
+.charts {
+  display: flex;
+  gap: var(--u5);
+  flex-wrap: wrap;
+  margin: var(--u5) 0;
+  /* The three charts sit with the tables beneath them rather than being
+   * spread edge to edge. */
+  justify-content: flex-start;
+}
 .chart { flex: 1 1 260px; margin: 0; }
 .chart figcaption {
   font-size: var(--fs-small);
@@ -688,12 +881,74 @@ svg.bars .tick {
 .invoiced { color: var(--accent); }
 
 .figure .sub { display: block; font-size: var(--fs-small); }
-.split { display: flex; gap: var(--u5); flex-wrap: wrap; margin-top: var(--u5); }
-.split > div { flex: 1 1 380px; min-width: 0; }
-.split h2 { font-size: var(--fs-body); margin-bottom: var(--u3); }
+/* Two panels sized to their content. The cost breakdown is a narrow list
+ * of categories; the contract table has four columns and wants the room.
+ * Splitting the page in half gave one of them acres of white space and
+ * squeezed the other. */
+.split {
+  display: flex;
+  gap: var(--u6, 32px);
+  flex-wrap: wrap;
+  margin-top: var(--u5);
+  align-items: flex-start;
+}
+/* Neither panel is stretched: each takes what its content needs and the
+ * pair sits together rather than at opposite edges of the window. */
+/* Centred as a pair. Two content-width panels pinned to the left leave
+ * the same emptiness they were sized to avoid, on the other side. */
+.split { justify-content: center; }
+.split > .panel { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.split > .panel.narrow { flex: 0 0 auto; }
+.split h2 {
+  font-size: var(--fs-body);
+  margin-bottom: var(--u3);
+  padding-bottom: var(--u2);
+  border-bottom: 1px solid var(--line);
+}
+/* Columns take the width they need; only the first stretches. Money
+ * columns are as wide as money, which is a known width. */
+/* A table that fits its content instead of being stretched to the window.
+ * `width: 100%` gave the first column all the slack, so a five-column
+ * table on a wide screen was mostly an empty first cell -- and the numbers
+ * sat a metre from the labels they belonged to.
+ *
+ * Centred when it is narrower than the space, because a content-width
+ * table pinned to the left leaves the same emptiness on the other side. */
+table.fit {
+  width: auto;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  table-layout: auto;
+}
+table.fit td, table.fit th { padding-left: var(--u4); }
+table.fit td:first-child, table.fit th:first-child { padding-left: 0; }
+table.fit td.num, table.fit th.num { white-space: nowrap; }
+
+table.tight { width: auto; max-width: 100%; table-layout: auto; }
+table.tight td, table.tight th { padding-left: var(--u3); }
+table.tight td:first-child, table.tight th:first-child { padding-left: 0; }
+table.tight td.num, table.tight th.num { white-space: nowrap; width: 1%; }
+table.tight tfoot th {
+  border-top: 1px solid var(--line-strong);
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The year total, sitting beside the label rather than eleven columns
+ * away. Ruled off so the months read as a series and this does not. */
+.total-col {
+  border-right: 1px solid var(--line-strong);
+  padding-right: var(--u3);
+}
 
 table.expense-grid { font-size: var(--fs-small); }
 table.expense-grid th { white-space: nowrap; }
+/* Months need air between them. At the default cell padding the figures
+ * ran together and the eye could not tell which column it was in. */
+table.expense-grid td, table.expense-grid th { padding-left: var(--u4); }
+table.expense-grid td:first-child,
+table.expense-grid th:first-child { padding-left: 0; padding-right: var(--u4); }
 table.expense-grid tr.group th {
   background: var(--surface-2);
   font-family: var(--font-data);
@@ -833,11 +1088,25 @@ button.link-button {
 }
 button.link-button:hover { text-decoration: underline; }
 
+/* Buttons inside a TABLE ROW: shorter and smaller, because a row is
+ * 28px tall and a full-height button in one makes the grid unreadable. */
 .row-actions { display: inline-flex; gap: var(--u); }
-.row-actions button {
+tbody .row-actions button,
+tbody .row-actions a.button {
   height: calc(var(--h-control) - 8px);
   padding: 0 var(--u2);
   font-size: var(--fs-micro);
+}
+/* In a PAGE HEAD they are ordinary buttons. Procurement and Expenses put
+ * their actions in a `.row-actions` span and inherited the row sizing,
+ * so their headers had smaller buttons than Projects and Schedules for no
+ * reason anybody chose. */
+.page-head .row-actions { gap: var(--u2); }
+.page-head .row-actions button,
+.page-head .row-actions a.button {
+  height: var(--h-control);
+  padding: 0 var(--u3);
+  font-size: var(--fs-small);
 }
 
 /* -------------------------------------------------- states, not moods */

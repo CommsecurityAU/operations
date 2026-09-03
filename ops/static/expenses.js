@@ -247,30 +247,13 @@ export async function render(root) {
       h("h1", null, "Office expenses"),
       h("span", { class: "eyebrow" }, "what the business costs to run"),
       h("span", { class: "spacer" }),
+      // Actions in the heading, as on Projects and Procurement.
       h("span", { class: "row-actions" },
-        h("button", { type: "button",
-                      onclick: () => {
-                        // All or nothing: opening eleven categories one at
-                        // a time to find a figure is worse than the wall of
-                        // rows this exists to avoid.
-                        const names = [...new Set(
-                          data.lines.map((l) => l.category_name))];
-                        if (open_.size) open_.clear();
-                        else names.forEach((n) => open_.add(n));
-                        render(root);
-                      } },
-          open_.size ? "Collapse all" : "Expand all"),
-        toggle("month", "By month"), toggle("fy", "By year"),
-        view === "month" ? yearPicker : null,
         canWrite
           ? h("button", { type: "button",
                           onclick: () => open("categoryDialog", data) },
               "New category")
           : null,
-        h("a", { class: "button", href: "/api/expenses/export",
-                 title: data.elevated
-                   ? "Includes salaries, because you have signed in again"
-                   : "Salaries are left out" }, "Export CSV"),
         canWrite
           ? h("button", { type: "button", class: "primary",
                           onclick: () => open("lineDialog", null, data) },
@@ -278,9 +261,33 @@ export async function render(root) {
           : null)),
     notice,
     h("div", { class: "figures" }, Object.values(figures).map((f) => f.el)),
+    // Filters and the export in the bar above the table, where every other
+    // screen keeps them. They were all crowded into the heading, which
+    // made this screen read differently for no reason anybody chose.
+    h("div", { class: "controls" },
+      h("button", { type: "button",
+                    onclick: () => {
+                      // All or nothing: opening eleven categories one at a
+                      // time to find a figure is worse than the wall of
+                      // rows this exists to avoid.
+                      const names = [...new Set(
+                        data.lines.map((l) => l.category_name))];
+                      if (open_.size) open_.clear();
+                      else names.forEach((n) => open_.add(n));
+                      render(root);
+                    } },
+        open_.size ? "Collapse all" : "Expand all"),
+      toggle("month", "By month"),
+      toggle("fy", "By year"),
+      view === "month" ? yearPicker : null,
+      h("span", { class: "spacer" }),
+      h("a", { class: "button", href: "/api/expenses/export",
+               title: data.elevated
+                 ? "Includes salaries, because you have signed in again"
+                 : "Salaries are left out" }, "Export CSV")),
     data.lines.length
-      ? h("div", { class: "table-wrap" },
-          h("table", { class: "expense-grid" },
+      ? h("div", { class: "table-wrap fit-wrap" },
+          h("table", { class: "expense-grid fit" },
             h("thead", null, h("tr", null,
               h("th", null, "Line"),
               // Holds the group's total on a header row and a salary or a

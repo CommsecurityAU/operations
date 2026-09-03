@@ -105,6 +105,13 @@ export function datatable(model) {
       onclick: (e) => { e.stopPropagation(); toggle(); },
     }, caption, h("span", { class: "caret" }, "\u25BE"));
 
+    // A CHIP, not a checkbox in a list. The whole thing is the target and
+    // the whole thing shows the state, so a filter reads at a glance
+    // instead of asking the eye to find a tick in a column of boxes.
+    //
+    // Still a real checkbox underneath: it is what a screen reader
+    // announces and what the keyboard toggles. The box itself is hidden
+    // visually, not removed.
     const boxes = values.map((v) => {
       const input = h("input", {
         // Named explicitly, not only by the wrapping <label>: a screen
@@ -112,22 +119,28 @@ export function datatable(model) {
         // it filters.
         type: "checkbox", value: String(v), "aria-label": String(v),
         checked: chosen.has(String(v)),
-        onchange: (e) => {
-          if (e.target.checked) chosen.add(String(v)); else chosen.delete(String(v));
-          state.page = 0;
-          remember();
-          describe();
-          paint();
-        },
       });
-      return h("label", { class: "filter-opt" }, input, h("span", null, String(v)));
+      const chip = h("label", { class: "chip" + (input.checked ? " on" : "") },
+        input, h("span", null, String(v)));
+      input.addEventListener("change", () => {
+        if (input.checked) chosen.add(String(v)); else chosen.delete(String(v));
+        chip.classList.toggle("on", input.checked);
+        state.page = 0;
+        remember();
+        describe();
+        paint();
+      });
+      return chip;
     });
 
     const clear = h("button", {
       type: "button", class: "filter-clear",
       onclick: () => {
         chosen.clear();
-        for (const b of boxes) b.firstChild.checked = false;
+        for (const b of boxes) {
+          b.firstChild.checked = false;
+          b.classList.remove("on");
+        }
         state.page = 0; remember(); describe(); paint();
       },
     }, "Clear");
@@ -216,6 +229,10 @@ export function datatable(model) {
     const active = state.sortKey === (col.sortKey || col.key);
     return h("th", {
       class: col.align === "right" ? "num" : null,
+      // A column may need a sentence that will not fit in its heading.
+      // `Customer POs` and `Orders in hand` sit side by side and mean
+      // completely different things, and a two-word header cannot say so.
+      title: col.title || null,
       "aria-sort": active ? (state.sortDir === 1 ? "ascending" : "descending") : "none",
       onclick: () => {
         // A column may sort on a different field from the one it shows:

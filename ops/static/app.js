@@ -75,6 +75,28 @@ export const fmt = {
   // because the money guardrail cannot tell a percentage from a cents
   // conversion -- and it is right not to try: both are `* 100`, and one of
   // them being wrong costs real money.
+  // Money at a glance: `$1.2m` says what the scale is, which is all an
+  // axis label is for. `$1,234,567.00` on a gridline says nothing and does
+  // not fit.
+  //
+  // Here rather than in `chart.js` because it divides cents, and the
+  // guardrail cannot tell that from a conversion that would be wrong --
+  // and is right not to try.
+  shortMoney(cents) {
+    const dollars = Math.abs(cents) / 100;
+    const sign = cents < 0 ? "-" : "";
+    if (dollars >= 1e6) return `${sign}$${(dollars / 1e6).toFixed(1)}m`;
+    if (dollars >= 1e3) return `${sign}$${Math.round(dollars / 1e3)}k`;
+    return `${sign}$${Math.round(dollars)}`;
+  },
+
+  // A bar's width as a percentage of its track. Same reason: `* 100` on a
+  // money value is indistinguishable from a cents conversion.
+  pct(part, whole) {
+    if (!whole) return 0;
+    return (part / whole) * 100;
+  },
+
   share(part, whole) {
     if (!whole) return null;
     return Math.round((part / whole) * 100);

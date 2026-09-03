@@ -15,6 +15,5 @@
   "reportUnknownParameterType": false,
   "reportMissingParameterType": false,
   "reportUnknownLambdaType": false,
-  "reportAny": false,
   "reportUnusedFunction": false
 }

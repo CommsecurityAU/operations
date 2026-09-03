@@ -271,11 +271,23 @@ export async function render(root) {
     }
     const rows = payload.claims;
     const figures = {
-      forecast: figure("Forecast"),
-      due: figure("Due"),
-      approved: figure("Approved"),
+      // In the order the money moves: what the job is worth, what has been
+      // billed, what is held back out of that, what remains to bill, how
+      // much of it is scheduled, how much is not, and then the two waiting
+      // states. Filtering to one project reads as a position rather than
+      // as a set of unrelated totals.
+      //
+      // The first two are PROJECT figures, summed over the projects on
+      // screen. They do not change when the month filter does -- a
+      // contract is not a monthly quantity.
+      contract: figure("Contract"),
       invoiced: figure("Invoiced", "is-primary"),
       retention: figure("Retention held", "is-attention"),
+      oih: figure("Orders in hand", "is-good"),
+      forecast: figure("Forecast"),
+      gap: figure("Not forecast", "is-attention"),
+      due: figure("Due"),
+      approved: figure("Approved"),
     };
     const held = payload.retention_by_project || {};
 
@@ -291,6 +303,33 @@ export async function render(root) {
       const sum = [...seen].reduce((t, id) => t + (held[id] || 0), 0);
       figures.retention.set(fmt.money(sum));
       figures.retention.el.hidden = sum === 0;
+
+      // Coverage follows the PROJECTS on screen, not the claims: a project
+      // with six claims must count once. Netting an under-forecast job
+      // against an over-forecast one would report that everything is fine.
+      // Project figures, over the DISTINCT projects in view. A project
+      // with six claims must count once, and a month filter must not
+      // change a contract value.
+      const inView = (payload.coverage || []).filter(
+        (c) => seen.has(c.project_id));
+      figures.contract.set(fmt.money(inView.reduce(
+        (t, c) => t + c.contract_value_cents, 0)));
+      figures.oih.set(fmt.money(inView.reduce(
+        (t, c) => t + c.orders_in_hand_cents, 0)));
+      const projects = inView.length;
+      figures.contract.el.title = figures.oih.el.title =
+        `across ${projects} project${projects === 1 ? "" : "s"}; not `
+        + "affected by the month filter";
+
+      const short = inView.filter((c) => c.state === "project under");
+      const gap = short.reduce((t, c) => t + c.gap_cents, 0);
+      const count = short.length;
+      figures.gap.set(fmt.money(gap));
+      figures.gap.el.hidden = gap === 0;
+      figures.gap.el.title = count
+        ? `${count} project${count === 1 ? "" : "s"} with work left to bill `
+          + "and no month to bill it in"
+        : "";
     }
 
     const COLUMNS = [
@@ -307,6 +346,25 @@ export async function render(root) {
         fmt: (v) => v || "\u2013" },
       { key: "amount_cents", label: "Amount", align: "right", fmt: fmt.moneyDash },
       { key: "retention_state", label: "Retention", cls: () => "muted" },
+      // The project's forecast coverage, on every one of its claims, so
+      // the grid can be filtered down to the jobs that need scheduling.
+      // The PROJECT's coverage, shown on each of its claims. Named so it
+      // reads correctly beside a forecast row: the claim is forecast, the
+      // project is short.
+      { key: "coverage", label: "Project forecast",
+        title: "Whether the whole project's remaining contract sits in "
+               + "months. It describes the PROJECT, not this claim.",
+        fmt: (v, r) => (v === "complete"
+          ? h("span", { class: "muted" }, "complete")
+          : h("span", { title: `${fmt.money(Math.abs(r.coverage_gap_cents))} `
+                               + (v === "project under"
+                                  ? "of this project is left to bill and is "
+                                    + "in no month"
+                                  : "more is forecast than the contract "
+                                    + "allows") },
+              v === "project under" ? "under" : "over",
+              " ", fmt.money(Math.abs(r.coverage_gap_cents)))),
+        cls: (v) => (v === "complete" ? "muted" : "flagged-cell") },
       { key: "retention_cents", label: "Withheld", align: "right",
         fmt: fmt.moneyDash, cls: (v) => (v ? "secondary" : "secondary zero") },
       { key: "status", label: "Status", fmt: (_v, r) => statusCell(r, payload.transitions) },
@@ -319,7 +377,8 @@ export async function render(root) {
             columns: COLUMNS,
             rows,
             filters: ["fy_label", "period_label", "project_name",
-                      "type", "client", "status", "retention_state"],
+                      "type", "client", "status", "retention_state",
+                      "coverage"],
             // Land on the current financial year. Showing FY26 through
             // FY28 at once would make the totals describe nothing anyone
             // asked about.
@@ -334,7 +393,47 @@ export async function render(root) {
             stateKey: "invoicing",
           })
         : stateMessage("No claims yet",
-                       "Import the forecast, or add one.", false)));
+                       "Import the forecast, or add one.", false),
+      // The lifecycle, written down where the work happens. It was in the
+      // architecture document and nowhere a person doing the invoicing
+      // would look, so the rules about reasons and approvals had to be
+      // discovered by being refused.
+      h("div", { class: "howto" },
+        h("h2", null, "How a claim moves"),
+        h("ol", null,
+          h("li", null,
+            h("b", null, "Forecast"), " \u2014 the work is scheduled into a "
+            + "month. Change the month from the grid; no reason needed "
+            + "while it is only a plan."),
+          h("li", null,
+            h("b", null, "Due"), " \u2014 the work is done and it can be "
+            + "claimed. From here on, moving it to another month is "
+            + "SLIPPAGE and asks why."),
+          h("li", null,
+            h("b", null, "Approved"), " \u2014 the customer has agreed the "
+            + "claim. Ready to invoice."),
+          h("li", null,
+            h("b", null, "Invoiced"), " \u2014 the invoice has been issued. "
+            + "Record the invoice number; retention is withheld here if the "
+            + "project has terms."),
+          h("li", null,
+            h("b", null, "Paid"), " \u2014 the money has arrived.")),
+        h("p", { class: "muted note" },
+          "Each step can be stepped back. Going back out of ",
+          h("b", null, "invoiced"), " or ", h("b", null, "paid"),
+          " needs an approver and a reason, because it undoes something "
+          + "that exists in Xero. A claim that is not going ahead is "
+          + "CANCELLED rather than deleted: it keeps its history and drops "
+          + "out of the totals."),
+        h("p", { class: "muted note" },
+          "The ", h("b", null, "Project forecast"), " column describes the "
+          + "whole project, not the row it sits on. ",
+          h("b", null, "under"),
+          " means the project has work left to bill that is in no month "
+          + "\u2014 add a forecast claim for the difference. ",
+          h("b", null, "over"),
+          " means its months add up to more than the contract allows "
+          + "\u2014 usually an unrecorded variation."))));
   }
 
   mount(root, h("div", { class: "content" },

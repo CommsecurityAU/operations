@@ -89,10 +89,13 @@
   --font-data:    ui-monospace, "Cascadia Mono", "SF Mono", "Menlo",
                   "Consolas", monospace;
 
-  --fs-display: 1.375rem;
-  --fs-body:    0.8125rem;
-  --fs-small:   0.75rem;
-  --fs-micro:   0.6875rem;
+  /* Raised one step across the board, 3 Sep. 0.8125rem is 13px, which is
+   * fine on a laptop at arm's length and tiring on a register somebody
+   * reads all day. Every size moves together so the relationships hold. */
+  --fs-display: 1.5rem;
+  --fs-body:    0.875rem;
+  --fs-small:   0.8125rem;
+  --fs-micro:   0.75rem;
 
   --lh-tight: 1.15;
   --lh-body:  1.45;

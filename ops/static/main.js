@@ -49,7 +49,30 @@ async function boot() {
     h("span", { class: "roles" },
       me.roles.length ? ` ${me.roles.map((r) => r.role).join(" ")}` : " no access")));
 
-  const name = (location.hash.replace("#", "") || "projects");
+  // A tab for a screen this person cannot open is a tab that goes to a
+  // refusal. The server is what actually refuses -- hiding a link is not a
+  // control and is not meant to be -- but a navigation that offers doors
+  // nobody can walk through is a navigation nobody trusts.
+  //
+  // Only screens with a role BEYOND the baseline are listed: everything
+  // else needs `viewer`, which anyone who got this far already has.
+  const NEEDS = {
+    dashboard: "finance",
+    expenses: "finance",
+    access: "admin",
+  };
+  const held = new Set(me.roles.map((r) => r.role));
+  for (const [screen, role] of Object.entries(NEEDS)) {
+    if (held.has(role)) continue;
+    const link = document.querySelector(`.nav a[href="#${screen}"]`);
+    if (link) link.hidden = true;
+  }
+
+  let name = (location.hash.replace("#", "") || "projects");
+  // Typing the URL of a hidden screen still reaches it, and still gets the
+  // server's refusal with its explanation. What it must not do is leave
+  // the shell on a tab that is not there.
+  if (NEEDS[name] && !held.has(NEEDS[name])) name = "projects";
   for (const link of document.querySelectorAll(".nav a")) {
     if (link.getAttribute("href") === `#${name}`) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");

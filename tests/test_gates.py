@@ -248,6 +248,63 @@ class TestNothingIsAcceptedAndIgnored(unittest.TestCase):
 
 
 
+class TestAMigrationNeedsNoParticularRunner(unittest.TestCase):
+    """Applied by a PLAIN runner: one transaction, foreign keys on, no view
+    preservation, no `.nofk` handling.
+
+    Migration `024` relied on the runner dropping and restoring views, and
+    the N-1 gate refused it -- the previous release's runner has no such
+    feature. The gate was right about something bigger than itself: **a
+    migration that only works with one version of the runner is a hidden
+    coupling**, and the version that has to apply it during a rollback is
+    the one that does not have the feature.
+    """
+
+    def test_a_plain_runner_can_apply_every_migration(self):
+        import shutil
+        import sqlite3
+        import tempfile
+        folder = tempfile.mkdtemp()
+        try:
+            conn = sqlite3.connect(os.path.join(folder, "o.db"))
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations "
+                         "(version TEXT PRIMARY KEY, applied_ts INTEGER)")
+            migrations = os.path.join(ROOT, "ops", "migrations")
+            names = sorted(n for n in os.listdir(migrations)
+                           if n.endswith(".sql"))
+            for name in names:
+                with open(os.path.join(migrations, name),
+                          encoding="utf-8") as f:
+                    sql = f.read()
+                try:
+                    conn.executescript(f"BEGIN;\n{sql}\nCOMMIT;")
+                except Exception as e:
+                    conn.rollback()
+                    self.fail(f"{name} needs a runner feature: {e}")
+            broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+            self.assertEqual(broken, [], "references do not resolve")
+            conn.close()
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def test_a_rebuild_recreates_every_view_it_drops(self):
+        """A view of a view breaks when its dependency goes.
+        `v_upcoming_renewals` never mentions `project` and broke anyway,
+        because it reads `v_schedule_coverage` which does."""
+        folder = os.path.join(ROOT, "ops", "migrations")
+        for name in sorted(os.listdir(folder)):
+            if not name.endswith(".nofk.sql"):
+                continue
+            with open(os.path.join(folder, name), encoding="utf-8") as f:
+                body = f.read()
+            dropped = set(re.findall(r"DROP VIEW IF EXISTS (\w+)", body))
+            created = set(re.findall(r"CREATE VIEW (\w+)", body))
+            self.assertEqual(sorted(dropped - created), [],
+                             f"{name}: drops views it never recreates")
+
+
 class TestARebuildKeepsWhatItRebuilt(unittest.TestCase):
     """Recreating a table is three chances to lose something quietly.
 

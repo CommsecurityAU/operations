@@ -14,8 +14,10 @@ Handlers never write SQL. Every mutation is a `Db` method whose body runs in
 """
 
 import contextlib
+import hashlib
 import os
 import re
+import shutil
 import sqlite3
 import threading
 import time
@@ -88,6 +90,7 @@ class Db:
         self.last_backup_error = None
 
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        self._seed_from_template()
         # check_same_thread=False is safe ONLY because every use is serialised
         # by self._lock. Do not call this connection outside _tx().
         self._write = sqlite3.connect(self.path, check_same_thread=False)
@@ -166,6 +169,74 @@ class Db:
         except sqlite3.OperationalError:
             return []
 
+    #: Where a pre-migrated database is cached. `OPS_SCHEMA_CACHE`, or off.
+    #:
+    #: Applying twenty-four migrations costs about 65 ms and copying the
+    #: result costs 3 ms. Across a thousand tests that is a minute of every
+    #: run on Linux and over two on Windows — enough that people stop
+    #: running the suite before committing, which is the real cost. It is
+    #: SQL execution rather than fsync, so no pragma helps: an in-memory
+    #: database saves 5 ms of the 65.
+    #:
+    #: AN ENVIRONMENT VARIABLE, not a hook. The obvious place was
+    #: `tests/__init__.py`, and it never ran: `unittest discover` puts the
+    #: test directory on `sys.path` and imports the modules top-level, so
+    #: the package init is never imported. The cache looked enabled, the
+    #: suite was unchanged, and only counting the migrations showed why.
+    #:
+    #: Production does not set it and its path is unchanged.
+    _template_dir = os.environ.get("OPS_SCHEMA_CACHE") or None
+
+    @classmethod
+    def use_template_cache(cls, directory):
+        """Cache the migrated schema in `directory`."""
+        cls._template_dir = directory
+
+    def _template_path(self):
+        """Keyed on the CONTENT of every migration, so editing one — or
+        adding one — invalidates the cache. Keyed on the name alone, a
+        changed migration would be silently skipped and every test would
+        run against yesterday's schema."""
+        if not self._template_dir:
+            return None
+        digest = hashlib.sha256()
+        for name in sorted(os.listdir(self.migrations_dir)):
+            if not name.endswith(".sql"):
+                continue
+            digest.update(name.encode())
+            with open(os.path.join(self.migrations_dir, name), "rb") as f:
+                digest.update(f.read())
+        return os.path.join(self._template_dir,
+                            f"schema-{digest.hexdigest()[:16]}.db")
+
+    def _seed_from_template(self):
+        """Copy the cached schema in, if there is one and this database does
+        not exist yet. A database with anything already in it is never
+        touched."""
+        template = self._template_path()
+        if not template or not os.path.exists(template):
+            return
+        if os.path.exists(self.path) and os.path.getsize(self.path) > 0:
+            return
+        shutil.copyfile(template, self.path)
+
+    def _save_template(self):
+        """VACUUM INTO, not a file copy: the write connection is open and a
+        copy of a live WAL database is a copy that disagrees with itself."""
+        template = self._template_path()
+        if not template or os.path.exists(template):
+            return
+        os.makedirs(os.path.dirname(template), exist_ok=True)
+        scratch = f"{template}.{os.getpid()}"
+        try:
+            self._write.execute("VACUUM INTO ?", (scratch,))
+            os.replace(scratch, template)      # atomic; parallel runs are fine
+        except Exception:
+            # A cache that cannot be written is a slow suite, not a broken
+            # one.
+            if os.path.exists(scratch):
+                os.unlink(scratch)
+
     def migrate(self):
         """Numbered, forward-only, one transaction each, recorded in
         schema_migrations. Returns the versions applied by this call.
@@ -206,6 +277,10 @@ class Db:
                     self._write.rollback()
                     raise MigrationError(f"{version} failed, rolled back: {e}") from e
                 applied.append(version)
+            if applied:
+                # Only after a run that actually did work, and only into a
+                # cache somebody switched on.
+                self._save_template()
             return applied
 
     def _rebuild_migration(self, version, sql):

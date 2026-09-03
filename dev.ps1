@@ -1,4 +1,12 @@
 <#
+
+# The suite caches the migrated schema here. Applying twenty-four
+# migrations costs 65 ms a test and copying the result costs 3 ms -- on
+# Windows that is the difference between a three-minute suite and a
+# one-minute one. Set for the session so nobody has to remember it.
+if (-not $env:OPS_SCHEMA_CACHE) {
+    $env:OPS_SCHEMA_CACHE = Join-Path $env:TEMP "ops-schema"
+}
 .SYNOPSIS
     Local dev runner. The Windows counterpart to `make dev` / `make seed`
     / `make session`, since the Makefile's POSIX shell built-ins do not run

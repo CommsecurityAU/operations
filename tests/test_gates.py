@@ -248,6 +248,51 @@ class TestNothingIsAcceptedAndIgnored(unittest.TestCase):
 
 
 
+class TestCiRunsTheSuiteOnce(unittest.TestCase):
+    """The wall-time gate used to run the whole suite a SECOND time purely
+    to measure it, so every build paid for two runs and the number
+    described a run nobody looked at.
+
+    A performance budget that costs the thing it measures is a budget
+    working against itself.
+    """
+
+    def workflow(self):
+        path = os.path.join(ROOT, ".github", "workflows", "ci.yml")
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    def test_the_test_job_runs_the_suite_once(self):
+        body = self.workflow()
+        # Up to the N-1 job, which legitimately runs it again against the
+        # previous release.
+        head = body.split("  n1:")[0]
+        runs = [l for l in head.splitlines()
+                if "unittest discover -s tests" in l]
+        self.assertEqual(len(runs), 1,
+                         f"the test job runs the suite {len(runs)} times")
+
+    def test_the_budget_says_what_to_do_instead_of_raising_it(self):
+        """A budget nobody knows how to meet gets raised. This one names
+        the lever."""
+        body = self.workflow()
+        self.assertIn("Do NOT raise this number", body)
+
+    def test_ci_switches_the_schema_cache_on(self):
+        """Without it the suite is two and a half times longer, and the
+        budget is set for the fast path. The switch is an environment
+        variable because the obvious hook -- `tests/__init__.py` -- is
+        never imported: `unittest discover` puts the test directory on
+        `sys.path` and imports the modules top-level."""
+        self.assertIn("OPS_SCHEMA_CACHE", self.workflow())
+
+    def test_the_dev_script_switches_it_on_too(self):
+        """So a local run and a CI run measure the same thing."""
+        path = os.path.join(ROOT, "dev.ps1")
+        with open(path, encoding="utf-8") as f:
+            self.assertIn("OPS_SCHEMA_CACHE", f.read())
+
+
 class TestAMigrationNeedsNoParticularRunner(unittest.TestCase):
     """Applied by a PLAIN runner: one transaction, foreign keys on, no view
     preservation, no `.nofk` handling.

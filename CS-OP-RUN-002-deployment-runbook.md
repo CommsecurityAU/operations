@@ -98,12 +98,24 @@ a digest at release creation, so each image reference must sit on its own
 
 ## 2. The volume, before first boot
 
-`/data` is all state. Three things must exist before the app starts, and it
-refuses to start without them — deliberately, because a service that boots
-with a blank credential fails later and more confusingly.
+`/data` is all state, bind-mounted from `/var/lib/cs-ops` on the VM. The
+directory must exist and be owned by the container's user **before the
+first boot**. The container runs as uid 100, gid 101 (`ops`), and a plain
+`mkdir -p` leaves the directory root-owned, which is exactly the
+`unable to open database file` the first deploy failed with:
 
 ```
-ops-data/
+sudo install -d -o 100 -g 101 -m 750 /var/lib/cs-ops
+```
+
+With the secret and certificate delivered in the release (§3), nothing
+else needs to be in it. If they are not, two things must exist before the
+app starts, and it refuses to start without them — deliberately, because
+a service that boots with a blank credential fails later and more
+confusingly.
+
+```
+/var/lib/cs-ops/            (bind-mounted as /data)
 ├── secrets/store.json     OIDC_CLIENT_SECRET       (step 2a)
 └── tls/
     ├── server.crt         from the internal CA     [SITE-CA]
@@ -116,7 +128,7 @@ Set from **stdin**, never argv — argv lands in shell history, the process
 list, and any `ps` a colleague runs while it is in flight.
 
 ```
-docker run --rm -i -v ops-data:/data ghcr.io/commsecurityau/cs-ops:<digest> \
+docker run --rm -i -v /var/lib/cs-ops:/data ghcr.io/commsecurityau/cs-ops:<digest> \
     sh -c 'python3 -m ops.secrets set OIDC_CLIENT_SECRET' <<'EOF'
 <paste the secret>
 EOF
@@ -125,14 +137,14 @@ EOF
 Confirm it is there without printing it:
 
 ```
-docker run --rm -v ops-data:/data ghcr.io/commsecurityau/cs-ops:<digest> \
+docker run --rm -v /var/lib/cs-ops:/data ghcr.io/commsecurityau/cs-ops:<digest> \
     python3 -m ops.secrets list
 ```
 
 ### 2b. The certificate
 
 **Preferred: deliver it in the release.** Put the pair in the release
-environment as base64 and the app writes it to `ops-data/tls/` at boot,
+environment as base64 and the app writes it to `/var/lib/cs-ops/tls/` at boot,
 key 0600, before the checks below run. Renewal is then a new release, not
 a login to the host, and a restore needs nothing copied by hand.
 
@@ -146,13 +158,13 @@ rather than pairing a new certificate with a stale key from the volume.
 Values already on the volume are overwritten, which is the point.
 
 **Fallback: copy it onto the volume.**
-Copy the pair into `ops-data/tls/`. **The container runs as the non-root
+Copy the pair into `/var/lib/cs-ops/tls/`. **The container runs as the non-root
 `ops` user**, so a key copied in as root with mode 600 is unreadable to it —
 the most likely way this deploy fails:
 
 ```
-chown ops:ops server.crt server.key    # or the numeric uid inside the volume
-chmod 640 server.key
+sudo chown 100:101 /var/lib/cs-ops/tls/server.crt /var/lib/cs-ops/tls/server.key
+sudo chmod 600 /var/lib/cs-ops/tls/server.key
 ```
 
 If either file is missing, unreadable, or the pair does not match, boot
@@ -161,29 +173,57 @@ unhealthy = automatic rollback.
 
 ---
 
-## 3. Release environment
+## 3. The release
 
-**References only — never values.** The manifest is signed, persisted and
-shipped, so a secret written here would live in three new places (§10).
+Raven-Fleet writes the release's environment JSON to `.env` beside the
+compose file, and Compose fills every `${...}` from it. The compose file
+in git therefore holds no host-specific value at all.
+
+**Environment (JSON).** The secret and the TLS pair travel here (decided 4
+September 2026, superseding the `secret://`-only rule in §10: the store on
+the volume remains the fallback when `OIDC_CLIENT_SECRET` is unset).
 
 ```
-OPS_DATA=/data
-OPS_TLS=on
-OPS_PORT=8443
-OIDC_CLIENT_ID=<the client id — not a secret>
-OIDC_REDIRECT_URI=https://ops.commsecurity.com.au/auth/callback
-OPS_HOSTED_DOMAIN=commsecurity.com.au
-OIDC_CLIENT_SECRET=secret://OIDC_CLIENT_SECRET
-OPS_RELEASE=<git sha>
+{
+  "OIDC_CLIENT_ID": "<the client id — not a secret>",
+  "OIDC_REDIRECT_URI": "https://ops.commsecurity.com.au/auth/callback",
+  "OIDC_CLIENT_SECRET": "<the secret>",
+  "OPS_PORT": "8443",
+  "OPS_TLS": "true",
+  "OPS_HOSTED_DOMAIN": "commsecurity.com.au",
+  "OPS_BACKUP_INTERVAL_S": "3600",
+  "OPS_BACKUP_KEEP": "48",
+  "OPS_TLS_CERT": "<base64 -w0 server.crt>",
+  "OPS_TLS_KEY": "<base64 -w0 server.key>"
+}
 ```
 
-`OPS_RELEASE` is optional and worth setting: `/healthz` reports it, so a
-human reading the endpoint sees a commit rather than a content hash.
+The two TLS values are each one line of roughly two thousand characters.
+A value of 34 characters is the placeholder text, not a certificate, and
+the boot log's `"tls_cert_b64": "<34 bytes>"` is how that shows up.
 
-Named volume `ops-data:/data`. Staging directories are wiped on supersede;
-volumes persist.
+**Host privileges (JSON).** The fleet manager gates bind mounts, and
+privileges are fixed at release creation — an existing release cannot be
+edited, so a missing grant means a new release:
 
-**[SITE-FLEET]** — how this is expressed as a release.
+```
+{"cs-ops": ["bind:/var/lib/cs-ops"]}
+```
+
+**The VM's ceiling.** Provisioning writes `/etc/raven-fleet/policy.json`
+only when absent, so an existing box needs the edit by hand, as root:
+
+```
+printf '{"version":1,"max_allow":["bind:/var/lib/cs-ops"]}\n' | sudo tee /etc/raven-fleet/policy.json
+sudo chown root:root /etc/raven-fleet/policy.json && sudo chmod 0644 /etc/raven-fleet/policy.json
+```
+
+**Why an absolute bind mount.** Staging directories are wiped on
+supersede, so a relative `./data` would have put the database in a
+directory that vanishes on the second deploy — and Docker created it
+root-owned, which is the `unable to open database file` the first deploy
+hit. `/var/lib/cs-ops` persists, and is where `offbox_sync.sh` and
+`deploy.sh` look.
 
 ---
 

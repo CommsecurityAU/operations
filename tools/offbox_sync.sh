@@ -15,7 +15,7 @@
 # backup; /data/backups is a convenience.
 set -eu
 
-SRC="${OPS_DATA:-/var/lib/docker/volumes/ops-data/_data}"
+SRC="${OPS_DATA:-/var/lib/cs-ops}"
 DEST="${OPS_OFFBOX:-/mnt/backup/cs-ops}"
 KEEP_DAYS="${OPS_OFFBOX_KEEP_DAYS:-90}"
 

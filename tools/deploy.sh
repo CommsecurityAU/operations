@@ -15,8 +15,8 @@ cd "$(dirname "$0")/.."
 COMPOSE="docker compose"
 IMAGE="ghcr.io/commsecurityau/cs-ops"
 PREVIOUS=".deploy-previous-digest"
-# Where the named volume lives on the host; the same default as offbox_sync.sh.
-DATA="${OPS_DATA:-/var/lib/docker/volumes/ops-data/_data}"
+# Where /data is bind-mounted from on the host; the same default as offbox_sync.sh.
+DATA="${OPS_DATA:-/var/lib/cs-ops}"
 
 say() { printf '%s  %s\n' "$(date -Is)" "$*"; }
 die() { printf '%s  FATAL: %s\n' "$(date -Is)" "$*" >&2; exit 1; }

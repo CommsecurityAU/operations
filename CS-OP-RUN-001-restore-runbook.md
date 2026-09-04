@@ -48,7 +48,7 @@ docker stop ops
 
 ```
 python3 tools/restore.py --restore /mnt/backup/cs-ops/backups/ops-<stamp>.db \
-    --data /var/lib/docker/volumes/ops-data/_data \
+    --data /var/lib/cs-ops \
     --documents /mnt/backup/cs-ops/documents \
     --force
 ```
@@ -61,11 +61,11 @@ would be replayed over the restored one.
 
 ```
 # OIDC client secret — the app will not boot without it
-docker run --rm -it -v ops-data:/data cs-ops \
+docker run --rm -it -v /var/lib/cs-ops:/data cs-ops \
     sh -c 'printf "%s" "$SECRET" | python3 -m ops.secrets set OIDC_CLIENT_SECRET'
 
 # TLS certificate and key
-cp server.crt server.key /var/lib/docker/volumes/ops-data/_data/tls/
+cp server.crt server.key /var/lib/cs-ops/tls/
 ```
 
 The session signing key regenerates automatically. Every existing session is

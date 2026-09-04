@@ -62,16 +62,25 @@ services:
       OPS_TLS_CERT: ${OPS_TLS_CERT:-}
       OPS_TLS_KEY: ${OPS_TLS_KEY:-}
 
-    # A NAMED VOLUME, not a relative bind mount. Raven-Fleet runs this file
-    # from a staging directory that is wiped when the next release
-    # supersedes it, so `./data` would put the database in a directory that
-    # disappears on upgrade -- and Docker creates it root-owned, which the
-    # non-root app cannot write to (the "unable to open database file" on
-    # the first deploy). The named volume persists across releases, is
-    # owned by the app user from the start, and lives where the off-box
-    # sync already looks: /var/lib/docker/volumes/ops-data/_data.
+    # AN ABSOLUTE BIND MOUNT, never a relative one. Raven-Fleet runs this
+    # file from a staging directory that is wiped when the next release
+    # supersedes it, so `./data` put the database in a directory that
+    # disappears on upgrade -- and Docker created it root-owned, which the
+    # non-root app cannot write to ("unable to open database file" on the
+    # first deploy). /var/lib/cs-ops persists across releases and is where
+    # the off-box sync and deploy.sh look.
+    #
+    # The fleet manager gates bind mounts. The release needs, in "Host
+    # privileges (JSON)", fixed at release creation:
+    #     {"cs-ops": ["bind:/var/lib/cs-ops"]}
+    # and the VM's ceiling at /etc/raven-fleet/policy.json must allow it:
+    #     {"version":1,"max_allow":["bind:/var/lib/cs-ops"]}
+    #
+    # The directory must be owned by the app user BEFORE the first boot; a
+    # root-owned `mkdir -p` reproduces the first-deploy failure exactly:
+    #     sudo install -d -o 100 -g 101 -m 750 /var/lib/cs-ops
     volumes:
-      - ops-data:/data
+      - /var/lib/cs-ops:/data
 
     ports:
       # Bound to all interfaces, but the VM is on 172.16/12 and reachable
@@ -103,9 +112,3 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
-
-volumes:
-  ops-data:
-    # A fixed name, so the volume is `ops-data` and not
-    # `<staging-dir-name>_ops-data`, which would change with every release.
-    name: ops-data

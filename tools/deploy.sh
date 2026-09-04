@@ -15,6 +15,8 @@ cd "$(dirname "$0")/.."
 COMPOSE="docker compose"
 IMAGE="ghcr.io/commsecurityau/cs-ops"
 PREVIOUS=".deploy-previous-digest"
+# Where the named volume lives on the host; the same default as offbox_sync.sh.
+DATA="${OPS_DATA:-/var/lib/docker/volumes/ops-data/_data}"
 
 say() { printf '%s  %s\n' "$(date -Is)" "$*"; }
 die() { printf '%s  FATAL: %s\n' "$(date -Is)" "$*" >&2; exit 1; }
@@ -38,18 +40,18 @@ envval() { grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '"' ; }
 if [ -n "$(envval OIDC_CLIENT_SECRET)" ]; then
     say "OIDC secret: from .env"
 else
-    [ -f data/secrets/store.json ] || die "OIDC_CLIENT_SECRET is not in .env and
-   data/secrets/store.json is missing. Put it in the release JSON."
-    [ "$(stat -c '%a' data/secrets/store.json)" = "600" ] \
-        || die "data/secrets/store.json must be 0600"
-    grep -q OIDC_CLIENT_SECRET data/secrets/store.json \
+    [ -f $DATA/secrets/store.json ] || die "OIDC_CLIENT_SECRET is not in .env and
+   $DATA/secrets/store.json is missing. Put it in the release JSON."
+    [ "$(stat -c '%a' $DATA/secrets/store.json)" = "600" ] \
+        || die "$DATA/secrets/store.json must be 0600"
+    grep -q OIDC_CLIENT_SECRET $DATA/secrets/store.json \
         || die "the secret store has no OIDC_CLIENT_SECRET"
     say "OIDC secret: from the store on the volume"
 fi
 
 # The certificate. The app refuses to serve without it, so finding out now
 # is the difference between a refused deploy and a stopped service. Either
-# delivered in .env (base64 PEM, written to data/tls/ by the app at boot)
+# delivered in .env (base64 PEM, written to $DATA/tls/ by the app at boot)
 # or already on the volume; the same checks run on whichever it is.
 tlsdir=$(mktemp -d); chmod 700 "$tlsdir"; trap 'rm -rf "$tlsdir"' EXIT
 if [ -n "$(envval OPS_TLS_CERT)" ] || [ -n "$(envval OPS_TLS_KEY)" ]; then
@@ -62,13 +64,13 @@ if [ -n "$(envval OPS_TLS_CERT)" ] || [ -n "$(envval OPS_TLS_KEY)" ]; then
     crt="$tlsdir/server.crt"; key="$tlsdir/server.key"
     say "TLS material: from .env"
 else
-    for f in data/tls/server.crt data/tls/server.key; do
+    for f in $DATA/tls/server.crt $DATA/tls/server.key; do
         [ -f "$f" ] || die "$f is missing and OPS_TLS_CERT/OPS_TLS_KEY are not
        in .env. Issue a pair from the internal CA for ops.commsecurity.com.au."
     done
-    [ "$(stat -c '%a' data/tls/server.key)" = "600" ] \
-        || die "data/tls/server.key must be 0600, not $(stat -c '%a' data/tls/server.key)"
-    crt=data/tls/server.crt; key=data/tls/server.key
+    [ "$(stat -c '%a' $DATA/tls/server.key)" = "600" ] \
+        || die "$DATA/tls/server.key must be 0600, not $(stat -c '%a' $DATA/tls/server.key)"
+    crt=$DATA/tls/server.crt; key=$DATA/tls/server.key
     say "TLS material: from the volume"
 fi
 

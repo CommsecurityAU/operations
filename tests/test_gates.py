@@ -478,6 +478,20 @@ class TestTheDeploymentPinsWhatItRuns(unittest.TestCase):
         self.assertRegex(ref, r"(@sha256:[0-9a-f]{64}|:[A-Za-z0-9._-]+)$",
                          "the image needs an explicit tag or digest")
 
+    def test_the_data_volume_survives_the_next_release(self):
+        """Raven-Fleet runs the compose file from a staging directory that
+        is wiped on supersede. A relative bind mount puts the database in
+        that directory: root-owned on the first deploy (`unable to open
+        database file`), gone on the second. The off-box sync and the
+        runbook both expect the named volume `ops-data`."""
+        body = self.compose()
+        mounts = [l.strip() for l in body.splitlines()
+                  if l.strip().startswith("- ") and ":/data" in l]
+        self.assertEqual(mounts, ["- ops-data:/data"], mounts)
+        self.assertIn("name: ops-data", body,
+                      "the volume needs a fixed name, or it is prefixed "
+                      "with the staging directory's name")
+
     def test_no_secret_value_is_in_the_compose_file(self):
         """The compose file is in git. Every secret-bearing variable must
         be a `${...}` reference filled from the generated .env, never a

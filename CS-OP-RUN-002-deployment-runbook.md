@@ -1,9 +1,12 @@
 # CS-OP-RUN-002 — Deployment runbook
 
-- **As at:** 25 August 2026
+- **As at:** 4 September 2026
 - **Applies to:** CS-OP-ARCH-002 §13, CS-OP-STP-001 STP-0
-- **Status:** **DEFERRED 25 Aug 2026** — infrastructure not ready. STP-2 is
-  now built and holds real data; this is the next thing to do.
+- **Status:** **DEPLOYED 4 September 2026** on the internal VM through
+  Raven-Fleet, at `https://ops.commsecurity.com.au` over the VPN. Seeded
+  from the laptop database the same day. §1–§5 record how it was done and
+  what was wrong the first time; **§5a is the routine for every update
+  since.** Still open: §6, the off-box backup.
 
 ---
 
@@ -50,9 +53,17 @@ Marked **[SITE]** throughout. Fill them in as you go; the runbook is only
 finished once they are answered, and it should be corrected in place rather
 than remembered.
 
-1. **[SITE-VM]** — hostname, how you reach it, whether Docker is installed
-2. **[SITE-FLEET]** — how a release is created in the fleet manager and what
-   it expects
+1. ~~**[SITE-VM]**~~ — answered 4 September 2026: `172.16.224.83` on the
+   VPN, `ssh commsecurity@172.16.224.83` (key auth; passwordless sudo;
+   user in the `docker` group). Docker and the Raven-Fleet agent are
+   installed; the agent pulls images from the fleet's mirror at
+   `100.64.0.1:5000`. `ops.commsecurity.com.au` has no DNS record yet —
+   staff machines need a hosts entry until it does.
+2. ~~**[SITE-FLEET]**~~ — answered 4 September 2026: a release is the
+   compose file pasted in, the environment JSON (§3), and the host
+   privileges JSON (§3). The fleet pins `image: commsecurityau/cs-ops:latest`
+   to a digest on its mirror at release creation; the mirror only learns
+   about a new build when someone adds the image again (§5a).
 3. ~~**[SITE-CA]**~~ — answered 4 September 2026: there is no pre-existing
    internal CA. `tools/issue_cert.sh` creates one, on the operator's own
    machine, and issues the server pair; see §2b for where and when
@@ -84,17 +95,30 @@ correct until a block is agreed with whoever runs iTrade.
 
 ## 1. The image
 
-CI has already built and pushed it. Confirm what you are deploying:
+CI builds on every push to `main` and pushes `ghcr.io/commsecurityau/cs-ops`
+as `:latest` and `:<short sha>`. The fleet's mirror is a **copy** of that,
+taken when someone adds the image, and it never refreshes cs-ops on its own
+(the fleet's auto-refresh covers only its own `raven-*` packages).
+
+So, in Raven-Fleet → **Images** → **Add image**, enter
+`ghcr.io/commsecurityau/cs-ops:latest`. The mirror stores it as
+`commsecurityau/cs-ops`, host dropped, which is why the compose file names
+the bare path. Adding it again after a new build is what moves the mirror's
+`latest` forward — skip this and the next release quietly pins the OLD
+build.
+
+The compose file in git carries `image: commsecurityau/cs-ops:latest` and
+the fleet rewrites it to `<mirror>/commsecurityau/cs-ops@sha256:…` when the
+release is created, so a release still means exactly those bytes forever
+(§13). Each image reference must sit on its own `image:` line, and a gate
+keeps it to the bare path with an explicit tag.
+
+To see what a running device actually has:
 
 ```
-docker pull ghcr.io/commsecurityau/cs-ops:latest
-docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/commsecurityau/cs-ops:latest
+docker inspect cs-ops --format '{{.Config.Image}}'
+curl -ks https://localhost/healthz        # "code" is the fingerprint of the Python + SQL running
 ```
-
-The release must pin **that digest**, not `:latest` — a release means
-exactly those bytes forever (§13). The fleet manager rewrites `repo:tag` to
-a digest at release creation, so each image reference must sit on its own
-`image:` line.
 
 ---
 
@@ -265,41 +289,124 @@ The agent verifies the signed manifest, pulls over the tunnel, stages, then
 health-gates on `/healthz`. On failure it rolls back locally, with no
 network and no operator.
 
-Watch for, in order:
+In Raven-Fleet: **Releases** → the new version → **Deploy** to the device.
+Then on the VM, `docker logs -f cs-ops`. Watch for, in order:
 
 ```
-{"event": "boot", "code": "<fingerprint>", "release": "<sha>", ...}
-{"event": "migrated", "versions": ["001_foundation.sql", "002_job_number_range.sql"]}
+{"event": "boot", "code": "<fingerprint>", "release": null, "config": {... "tls_cert_b64": "<2272 bytes>" ...}}
+{"event": "migrated", "versions": ["001_foundation.sql", ...]}      first boot, or a new migration
+{"event": "tls_material", "source": "env", "path": "/data/tls"}
 {"event": "listening", "port": 8443, "tls": true}
 ```
 
+Read the `boot` line before anything else. `tls_cert_b64` at 34 bytes is
+the placeholder text, not a certificate; `oidc_client_secret` should say
+`<value, not a reference>`. `release` is null until `OPS_RELEASE` is set in
+the environment JSON.
+
 **A missing `migrated` line on a first deploy means the volume already had a
-database.** Worth stopping to understand rather than pressing on.
+database.** Worth stopping to understand rather than pressing on. On an
+update it is normal: it appears only when the release carries a new
+migration.
+
+The container listens on 8443; Docker publishes it on **443** so the
+registered redirect URI, which has no port, matches.
 
 ---
 
 ## 5. Confirm
 
+On the VM, then from a laptop over the VPN:
+
 ```
-curl -s https://ops.commsecurity.com.au/healthz
+curl -ks https://localhost/healthz
+curl -s  https://ops.commsecurity.com.au/healthz
 ```
 
-Expect `{"ok": true, "schema": {...}, "integrity": "ok", "warnings": []}`
-plus `code` and `release`.
+Expect `{"ok": true, "schema": {"expected": N, "applied": N, ...},
+"integrity": "ok", "warnings": []}` plus `code`. The laptop form also
+proves the certificate chain and the hostname: it needs `ca.crt` trusted
+(§2b) and the name resolving (hosts entry until the A record exists).
 
 Then the things `/healthz` cannot tell you:
 
-- [ ] **Sign in with a real Workspace account.** First sign-in provisions
-      `viewer` on **zero** entities, so the correct result is a 403 from the
-      project list, not an empty list
-- [ ] **Grant yourself a role** and confirm the register appears **without
-      signing in again** — roles resolve per request
+- [ ] **Sign in with a real Workspace account.** On an EMPTY system the
+      address in `OPS_BOOTSTRAP_ADMIN` receives every role on every entity
+      (§3) and lands on the register. Anyone else, and any sign-in once an
+      admin exists, provisions `viewer` on **zero** entities, so their
+      correct result is a 403 from the project list, not an empty list
+- [ ] **Grant a second person a role** from Access and confirm they see the
+      register **without signing in again** — roles resolve per request
 - [ ] **Grant `viewer` AND `operations`.** No role implies another, so an
       admin who is not also a viewer cannot read the register. This has
       caught us twice
-- [ ] **Import the register** if this volume is new:
-      `docker exec ops python3 tools/import_register.py --csv ... --db /data/ops.db`
-- [ ] **Orders in hand reads $3,520,041.73** at FY27 start
+- [ ] **Seed or import the data.** On 4 September the laptop database was
+      restored over the empty one with `tools/restore.py` (CS-OP-RUN-001,
+      pointed at a snapshot made with the SQLite backup API rather than a
+      file copy). Otherwise import the register:
+      `docker exec cs-ops python3 tools/import_register.py --csv ... --db /data/ops.db`
+- [ ] **After a restore, sign out and in again.** The browser's session
+      names a user id; the restored database may give that id to someone
+      else. Every session that predates the restore must be re-established
+- [ ] **Deactivate any dev account** that came across with the data, from
+      Access, once you hold admin yourself
+
+---
+
+## 5a. Releasing an update — the routine
+
+This is every deploy after the first. Done end to end on 4 September 2026
+for the claim-plan wrapping fix and the Sign out button; nothing on the VM
+is touched by hand, and the database is never involved.
+
+**1. Prove it locally.** `.\dev.ps1` serves the working tree on
+`http://localhost:5173`, TLS off, against `.\data`; `.\dev.ps1 -Session`
+mints a cookie so no OIDC is needed. Static files are read per request, so
+CSS and JS edits show on reload; Python edits need the server restarted
+(`.\dev.ps1 -Stale` says whether it is behind the tree). Look at the actual
+screen — a test proves the rule, the screen proves the result.
+
+**2. Run what CI will run.** `py -3 -m unittest discover -s tests` for the
+suite, `py -3 -m unittest tests.test_gates` for the gates alone (pinning,
+secrets, the compose file, the deploy script). CI fails on exactly these,
+so finding it here saves a round trip.
+
+**3. Commit and push.**
+
+```
+git push origin main
+```
+
+CI builds the image and pushes `ghcr.io/commsecurityau/cs-ops:latest` and
+`:<short sha>`. Wait for the green tick; the next step copies whatever is
+there.
+
+**4. Refresh the mirror.** Raven-Fleet → **Images** → **Add image** →
+`ghcr.io/commsecurityau/cs-ops:latest`. This is the step that is easy to
+forget and impossible to notice: without it the new release pins the
+previous build, deploys cleanly, and `/healthz` shows the OLD `code`.
+
+**5. Create the release.** **Releases** → new version. Paste the current
+`docker-compose.yml` from the repo (a release stores its own copy, so a
+compose change ships only when it is pasted in), the environment JSON, and
+the host privileges JSON — the last two unchanged unless something in §3
+changed. Privileges do not carry over between versions; paste them every
+time.
+
+**6. Deploy** the version to the device and watch `docker logs -f cs-ops`
+as in §4. Then `/healthz`: `code` must differ from before (it is the
+fingerprint of the running Python and SQL), `schema.applied` must equal
+`expected`, `integrity` must be `ok`.
+
+**What an update does NOT do.** It does not touch `/var/lib/cs-ops`:
+the database, the certificate and the session key all persist, so nobody
+is signed out. It does not roll back the database on failure: a release
+that fails its health gate is rolled back to the previous image
+automatically, but a migration it ran has run (§"If the deploy fails").
+Migrations are expand-only for exactly this reason.
+
+**Ownership of the steps.** 1–3 are the developer's. 4–6 are whoever holds
+the Raven-Fleet login. Today that is the same person; it need not stay so.
 
 ---
 
@@ -353,12 +460,20 @@ Common first-deploy failures, all of which now name themselves:
 
 | Symptom | Cause |
 |---|---|
-| exit 2, "no certificate at /data/tls/server.crt" | cert not placed |
-| exit 2, "cannot be read ... runs as the non-root 'ops' user" | key ownership |
+| `sqlite3.OperationalError: unable to open database file` (older builds), or exit 2 "/data is not writable by the app (uid 100 ...)" | `/var/lib/cs-ops` is root-owned: `sudo chown -R 100:101 /var/lib/cs-ops`. This was the first deploy, twice |
+| exit 2, "/data does not exist" | the bind mount is missing: the release lacks the host-privilege grant, or the directory was never created (§2) |
+| exit 2, "OPS_TLS_CERT is set but is not base64 of a PEM file" | the release JSON still holds placeholder text; `tls_cert_b64` in the boot line reads `<34 bytes>` |
+| exit 2, "OPS_TLS_CERT and OPS_TLS_KEY must be set together" | half a pair in the release JSON |
+| exit 2, "no certificate at /data/tls/server.crt" | neither in the release nor on the volume |
+| exit 2, "cannot be read ... runs as the non-root 'ops' user" | key ownership on a hand-copied pair |
 | exit 2, "do not go together" | cert and key from different issuances |
-| exit 2, "unresolved secret references" | `OIDC_CLIENT_SECRET` not set on the volume |
+| exit 2, "unresolved secret references" | `OIDC_CLIENT_SECRET` absent from the release JSON AND the store on the volume |
 | exit 2, "OIDC is not fully configured: ..." | a missing env var, named |
-| 403 after signing in | correct — grant yourself a role |
+| Compose: "required variable X is missing a value" | a key missing from the release's environment JSON |
+| 403 after signing in | correct for anyone but the bootstrap admin — grant them a role |
+| browser: certificate warning | `ca.crt` not trusted on that machine (§2b), or the site opened by IP — the certificate names the hostname only |
+| sign-in bounces or 404s after Google | the app is not on 443, or the hostname does not resolve on that machine; Google will not redirect to an IP address |
+| `/healthz` `code` unchanged after a deploy | the mirror was not refreshed (§5a step 4): the release pinned the previous build |
 | `/healthz` 503, `missing: [...]` | migrations did not run; read the boot log |
 
 ---
@@ -369,3 +484,23 @@ Update this runbook **in place** with the four **[SITE]** answers and
 anything that surprised you. A runbook that was written before the thing was
 done, and never corrected afterwards, is a document that describes an
 imagined system.
+
+**What surprised us on 4 September 2026**, now folded into the sections
+above so nobody meets them again:
+
+- The compose file's `./data` landed in the fleet's release directory,
+  root-owned and wiped on the next release. Absolute bind mount (§2, §3).
+- The named volume the runbook assumed is not something the fleet offers;
+  bind mounts need a privilege grant and a per-box ceiling (§3).
+- The container is uid 100, not 1000 as an earlier comment said; a plain
+  `mkdir -p` reproduces the failure exactly (§2).
+- `latest` in the fleet's mirror is a copy that never refreshes itself
+  (§1, §5a step 4).
+- The registered redirect URI has no port, so the app had to be published
+  on 443 (§4).
+- Google refuses raw-IP redirect URIs, so "just use the IP" cannot work
+  for sign-in; a hosts entry stood in for DNS (§5).
+- The first user was a viewer with no admin anywhere to promote them, hence
+  `OPS_BOOTSTRAP_ADMIN` (§3).
+- A restore reassigns user ids under live sessions; sign out and in (§5).
+- No internal CA existed; `tools/issue_cert.sh` is now the CA (§2b).

@@ -94,6 +94,8 @@ C:\Dev\operations\
 │   ├── restore.py                     verify + restore a snapshot
 │   ├── offbox_sync.ps1                off-box backup, Windows (ADR-59)
 │   ├── offbox_sync.sh                 host cron, backups/ + documents/ only
+│   ├── issue_cert.sh                  the internal CA; issues the server pair (RUN-002 §2b)
+│   ├── deploy.sh                      manual deploy to a VM without the fleet manager
 │   └── dev_session.py                 local session cookie, dev only
 │
 └── tests/                             245 tests, ~4 s

@@ -4,8 +4,11 @@
 - **Repo:** `C:\Dev\operations` → `git@github-roberts:CommsecurityAU/operations.git`
 - **Spec:** CS-OP-ARCH-002 (locked; changes require an ADR in §16)
 - **Plan:** CS-OP-STP-001 (delivery phases; supersedes ARCH-001 §11)
-- **Runbook:** CS-OP-RUN-001 (restore; rehearsal record)
+- **Runbook:** CS-OP-RUN-001 (restore; rehearsal record), CS-OP-RUN-002 (deployment; releasing an update)
 - **Phase:** STP-0 Foundation — **code complete, CI green, image published**
+- **Deployed:** 4 September 2026, on the internal VM via Raven-Fleet, at
+  `https://ops.commsecurity.com.au` (VPN only). Seeded from the laptop
+  database the same day. The update path is CS-OP-RUN-002 §5a.
 
 ---
 

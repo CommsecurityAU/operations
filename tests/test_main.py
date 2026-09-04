@@ -441,6 +441,59 @@ class TestTlsPreflight(unittest.TestCase):
         self.assertEqual(len(socket_mod.socket.__subclasses__()), before)
 
 
+class TestDataDirPreflight(unittest.TestCase):
+    """The first deploy failed twice with sqlite's `unable to open database
+    file`: no path, no uid, no fix. /data was bind-mounted from a
+    root-owned host directory. The message has to say all three."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        logging.getLogger("ops.main").setLevel(logging.CRITICAL)
+
+    def tearDown(self):
+        os.chmod(self.dir, 0o700)
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_a_missing_directory_names_the_path_and_the_fix(self):
+        cfg = Config(data_dir=os.path.join(self.dir, "nope"))
+        with self.assertLogs("ops.main", level="ERROR") as cm:
+            with self.assertRaises(SystemExit) as e:
+                main_mod.verify_data_dir(cfg)
+        self.assertEqual(e.exception.code, 2)
+        text = " ".join(cm.output)
+        self.assertIn("nope", text)
+        self.assertIn("install -d", text)
+
+    @unittest.skipIf(os.name == "nt" or not hasattr(os, "getuid")
+                     or os.getuid() == 0, "needs POSIX permissions, non-root")
+    def test_an_unwritable_directory_names_the_uid_and_the_owner(self):
+        os.chmod(self.dir, 0o500)
+        cfg = Config(data_dir=self.dir)
+        with self.assertLogs("ops.main", level="ERROR") as cm:
+            with self.assertRaises(SystemExit) as e:
+                main_mod.verify_data_dir(cfg)
+        self.assertEqual(e.exception.code, 2)
+        text = " ".join(cm.output)
+        self.assertIn(f"uid {os.getuid()}", text)
+        self.assertIn("chown", text)
+        self.assertIn("not writable", text)
+
+    def test_a_writable_directory_passes_and_leaves_nothing_behind(self):
+        main_mod.verify_data_dir(Config(data_dir=self.dir))
+        self.assertEqual(os.listdir(self.dir), [])
+
+    def test_it_runs_before_the_database_is_opened(self):
+        """Otherwise sqlite gets there first with its own message."""
+        cfg = Config(data_dir=os.path.join(self.dir, "nope"),
+                     oidc_client_id="cid",
+                     oidc_redirect_uri="https://ops.test/auth/callback",
+                     oidc_client_secret="x")
+        with self.assertLogs("ops.main", level="ERROR") as cm:
+            with self.assertRaises(SystemExit):
+                boot(cfg=cfg, env={}, serve=False)
+        self.assertIn("does not exist", " ".join(cm.output))
+
+
 class TestStaticIcons(unittest.TestCase):
     """A 404 favicon is invisible: the browser shows a generic page icon and
     nobody investigates. So it is asserted rather than assumed."""

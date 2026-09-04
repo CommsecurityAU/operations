@@ -227,6 +227,51 @@ def materialise_tls_from_env(cfg):
     return True
 
 
+def verify_data_dir(cfg):
+    """/data must exist and be writable by THIS process before anything
+    touches it. Otherwise the first thing to touch it is sqlite, and it
+    says `unable to open database file` with no path, no uid and no fix --
+    which is what the first deploy failed with, twice.
+
+    The usual cause: /data is bind-mounted from a host directory that was
+    created root-owned (`mkdir -p`), and the container runs as a non-root
+    user that cannot write there.
+    """
+    uid = os.getuid() if hasattr(os, "getuid") else None
+    gid = os.getgid() if hasattr(os, "getgid") else None
+    who = f"uid {uid}, gid {gid}" if uid is not None else "the app user"
+    fix = (f"sudo chown -R {uid}:{gid} <host directory> && "
+           f"sudo chmod 750 <host directory>") if uid is not None else \
+        "chown the host directory to the app user"
+
+    if not os.path.isdir(cfg.data_dir):
+        log.error(
+            "%s does not exist or is not a directory. It is bind-mounted "
+            "from the host (see docker-compose.yml); create it there, owned "
+            "by %s, before the first boot: sudo install -d -o %s -g %s -m 750 "
+            "<host directory>", cfg.data_dir, who, uid, gid)
+        raise SystemExit(2)
+
+    probe = os.path.join(cfg.data_dir, ".write-probe")
+    try:
+        fd = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(fd)
+        os.unlink(probe)
+    except PermissionError:
+        try:
+            st = os.stat(cfg.data_dir)
+            owner = f"owned by uid {st.st_uid}, gid {st.st_gid}, mode {oct(st.st_mode & 0o777)}"
+        except OSError:
+            owner = "owner unreadable"
+        log.error(
+            "%s is not writable by the app (%s; the directory is %s). It is "
+            "bind-mounted from the host, so fix it there: %s",
+            cfg.data_dir, who, owner, fix)
+        raise SystemExit(2)
+    except FileExistsError:
+        os.unlink(probe)
+
+
 def verify_tls_material(cfg):
     """Fail loudly, and say which file and what to do about it.
 
@@ -449,6 +494,7 @@ def boot(cfg=None, env=None, serve=True):
         log.error("%s", e)
         raise SystemExit(2)
 
+    verify_data_dir(cfg)
     db = Db(cfg.db_path, MIGRATIONS)
 
     # Snapshot BEFORE migrating: every rollback needs a matching file.

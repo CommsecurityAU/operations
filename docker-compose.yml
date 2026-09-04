@@ -83,10 +83,16 @@ services:
       - /var/lib/cs-ops:/data
 
     ports:
+      # Published on 443 because the OIDC redirect URI registered with
+      # Google is https://ops.commsecurity.com.au/auth/callback, with no
+      # port; after sign-in Google sends the browser to 443 and nothing
+      # else will do. Inside the container the app still listens on 8443
+      # as a non-root user; Docker does the privileged bind on the host.
+      #
       # Bound to all interfaces, but the VM is on 172.16/12 and reachable
       # only over the VPN. If that ever changes, this line is the one to
       # revisit first.
-      - "8443:8443"
+      - "443:8443"
 
     # The app is single-process Python with SQLite; it does not need a
     # gigabyte. A limit means a runaway query is a slow request rather than

@@ -149,7 +149,7 @@ $COMPOSE up -d
 # --------------------------------------------------------------------- prove
 say "waiting for it to answer"
 for i in $(seq 1 30); do
-    if curl -ksf https://localhost:8443/healthz >/dev/null 2>&1; then
+    if curl -ksf https://localhost/healthz >/dev/null 2>&1; then
         say "healthy after ${i}s"
         docker logs cs-ops 2>&1 | head -1
         exit 0

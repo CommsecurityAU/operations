@@ -131,6 +131,21 @@ docker run --rm -v ops-data:/data ghcr.io/commsecurityau/cs-ops:<digest> \
 
 ### 2b. The certificate
 
+**Preferred: deliver it in the release.** Put the pair in the release
+environment as base64 and the app writes it to `ops-data/tls/` at boot,
+key 0600, before the checks below run. Renewal is then a new release, not
+a login to the host, and a restore needs nothing copied by hand.
+
+```
+OPS_TLS_CERT=$(base64 -w0 server.crt)
+OPS_TLS_KEY=$(base64 -w0 server.key)
+```
+
+Both or neither: one without the other exits 2 naming the missing one,
+rather than pairing a new certificate with a stale key from the volume.
+Values already on the volume are overwritten, which is the point.
+
+**Fallback: copy it onto the volume.**
 Copy the pair into `ops-data/tls/`. **The container runs as the non-root
 `ops` user**, so a key copied in as root with mode 600 is unreadable to it —
 the most likely way this deploy fails:

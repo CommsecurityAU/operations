@@ -12,6 +12,10 @@ from typing import Any
 
 SECRET_KEYS = ("oidc_client_secret",)
 
+# Delivered material, never logged. The key is a credential; the cert is
+# public but a 2 KB base64 blob in every boot line helps nobody.
+MATERIAL_KEYS = ("tls_cert_b64", "tls_key_b64")
+
 
 @dataclass
 class Config:
@@ -32,6 +36,11 @@ class Config:
     oidc_client_secret: str = "secret://OIDC_CLIENT_SECRET"
     oidc_redirect_uri: str = ""
     hosted_domain: str = "commsecurity.com.au"
+
+    # tls material delivered through the environment (base64 PEM). Empty
+    # means "use whatever is already at data/tls/". Both or neither.
+    tls_cert_b64: str = ""
+    tls_key_b64: str = ""
 
     # backup
     backup_interval_s: int = 3600
@@ -90,6 +99,8 @@ class Config:
             if f.name in SECRET_KEYS:
                 out[f.name] = value if str(value).startswith("secret://") \
                     else "<value, not a reference>"
+            elif f.name in MATERIAL_KEYS:
+                out[f.name] = "<%d bytes>" % len(value) if value else ""
             else:
                 out[f.name] = value
         return out
@@ -119,6 +130,8 @@ def from_env(env=None):
                                    "secret://OIDC_CLIENT_SECRET"),
         oidc_redirect_uri=env.get("OIDC_REDIRECT_URI", ""),
         hosted_domain=env.get("OPS_HOSTED_DOMAIN", "commsecurity.com.au"),
+        tls_cert_b64=env.get("OPS_TLS_CERT", "").strip(),
+        tls_key_b64=env.get("OPS_TLS_KEY", "").strip(),
         backup_interval_s=int(env.get("OPS_BACKUP_INTERVAL_S", "3600")),
         backup_keep=int(env.get("OPS_BACKUP_KEEP", "48")),
     )

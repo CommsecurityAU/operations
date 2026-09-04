@@ -12,3 +12,4 @@ imports/
 
 .env.local
 .deploy-previous-digest
+.env

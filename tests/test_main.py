@@ -48,6 +48,14 @@ class TestConfig(unittest.TestCase):
     def test_str_is_safe_to_log(self):
         self.assertNotIn("GOCSPX", str(Config(oidc_client_secret="GOCSPX-x")))
 
+    def test_tls_material_is_never_logged(self):
+        cfg = from_env({"OPS_TLS_CERT": "Q0VSVA==", "OPS_TLS_KEY": "S0VZ"})
+        blob = json.dumps(cfg.redacted())
+        self.assertNotIn("S0VZ", blob)
+        self.assertNotIn("Q0VSVA", blob)
+        self.assertIn("bytes", blob)
+        self.assertEqual(from_env({}).tls_key_b64, "")
+
     def test_port_follows_tls(self):
         self.assertEqual(Config(tls=True).effective_port, 8443)
         self.assertEqual(Config(tls=False).effective_port, 8080)
@@ -345,6 +353,84 @@ class TestTlsPreflight(unittest.TestCase):
         self.assertIn("server.crt", text)
         self.assertIn("internal CA", text)
         self.assertIn("OPS_TLS=off", text)
+
+    # ---- material delivered through the environment (release JSON)
+    def env_pair(self):
+        """Issue a pair elsewhere, base64 it, and remove the files, so the
+        only way the boot can find them is through the environment."""
+        import base64
+        self.make_pair(crt="issued.crt", key="issued.key")
+        out = []
+        for name in ("issued.crt", "issued.key"):
+            path = os.path.join(self.dir, "tls", name)
+            with open(path, "rb") as f:
+                out.append(base64.b64encode(f.read()).decode())
+            os.unlink(path)
+        return out
+
+    def cfg_from_env(self, **extra):
+        return Config(data_dir=self.dir, tls=True, port=0,
+                      oidc_client_id="cid",
+                      oidc_redirect_uri="https://ops.test/auth/callback",
+                      **extra)
+
+    def boot_with(self, cfg):
+        return boot(cfg=cfg,
+                    env={"OPS_SECRETS_PATH":
+                         os.path.join(self.dir, "secrets", "store.json")},
+                    serve=False)
+
+    def test_an_env_delivered_pair_boots_and_lands_on_the_volume(self):
+        crt, key = self.env_pair()
+        cfg = self.cfg_from_env(tls_cert_b64=crt, tls_key_b64=key)
+        db, server, sched = self.boot_with(cfg)
+        try:
+            self.assertTrue(hasattr(server.socket, "context"))
+        finally:
+            sched.stop()
+            server.server_close()
+            db.close()
+        self.assertTrue(os.path.exists(cfg.tls_cert))
+        self.assertTrue(os.path.exists(cfg.tls_key))
+        if os.name != "nt":
+            self.assertEqual(os.stat(cfg.tls_key).st_mode & 0o777, 0o600)
+
+    def test_env_material_replaces_a_stale_pair_on_the_volume(self):
+        """A renewal is a new release. The old files must not win."""
+        self.make_pair()                      # stale pair on the volume
+        with open(os.path.join(self.dir, "tls", "server.crt"), "rb") as f:
+            stale = f.read()
+        crt, key = self.env_pair()
+        db, server, sched = self.boot_with(
+            self.cfg_from_env(tls_cert_b64=crt, tls_key_b64=key))
+        sched.stop(); server.server_close(); db.close()
+        with open(os.path.join(self.dir, "tls", "server.crt"), "rb") as f:
+            self.assertNotEqual(f.read(), stale)
+
+    def test_half_a_pair_is_refused_and_named(self):
+        crt, _ = self.env_pair()
+        with self.assertLogs("ops.main", level="ERROR") as cm:
+            with self.assertRaises(SystemExit) as e:
+                self.boot_with(self.cfg_from_env(tls_cert_b64=crt))
+        self.assertEqual(e.exception.code, 2)
+        self.assertIn("OPS_TLS_KEY", " ".join(cm.output))
+
+    def test_garbage_material_is_refused_and_named(self):
+        with self.assertLogs("ops.main", level="ERROR") as cm:
+            with self.assertRaises(SystemExit) as e:
+                self.boot_with(self.cfg_from_env(tls_cert_b64="not base64!",
+                                                 tls_key_b64="bm9wZQ=="))
+        self.assertEqual(e.exception.code, 2)
+        self.assertIn("OPS_TLS_CERT", " ".join(cm.output))
+
+    def test_raw_pem_is_accepted_too(self):
+        """Someone will paste the file rather than base64 it."""
+        import base64
+        crt, key = self.env_pair()
+        db, server, sched = self.boot_with(self.cfg_from_env(
+            tls_cert_b64=base64.b64decode(crt).decode(),
+            tls_key_b64=base64.b64decode(key).decode()))
+        sched.stop(); server.server_close(); db.close()
 
     def test_it_fails_before_the_server_is_built(self):
         """A bad certificate must fail the DEPLOY, not the first request."""

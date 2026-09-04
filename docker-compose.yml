@@ -11,38 +11,55 @@
 # then a deliberate act -- change the digest, `up -d`, and roll back by
 # putting the old digest back.
 #
-# THE OIDC SECRET IS NOT HERE. It lives in the secret store on the volume,
-# 0600 and owned by the app user, and the app resolves `secret://` at boot.
-# An environment variable would be readable by anyone who can run
-# `docker inspect`, and would sit in this file in git.
+# ALL CONFIGURATION COMES FROM .env, next to this file. Raven-Fleet writes
+# it from the release's environment-variable JSON; Compose reads it and
+# substitutes the ${...} references below. Nothing in this file is
+# host-specific, so this file is in git and .env is not (see .gitignore).
+# Every reference uses ${VAR:?}, so a missing key fails `up` with the key's
+# name rather than starting a container that cannot sign anyone in.
 #
-#   Put it there once:
-#     sudo install -d -o 1000 -g 1000 -m 700 /srv/cs-ops/data/secrets
-#     printf '{"OIDC_CLIENT_SECRET":"%s"}' 'THE-SECRET' \
-#       | sudo -u '#1000' tee /srv/cs-ops/data/secrets/store.json >/dev/null
-#     sudo chmod 600 /srv/cs-ops/data/secrets/store.json
+# THE OIDC SECRET IS AN ENVIRONMENT VARIABLE, set from .env. That is a
+# deliberate trade: it is readable by anyone who can run `docker inspect`
+# on the VM, which is the same set of people who can read the volume, and
+# it means a restore does not need the secret store re-seeded by hand
+# (CS-OP-RUN-001). Keep .env 0600. If OIDC_CLIENT_SECRET is left out the
+# app falls back to `secret://OIDC_CLIENT_SECRET` in the store on the
+# volume, so the old mechanism still works if you want it back.
 #
-# THE CERTIFICATE goes at data/tls/server.crt and server.key, issued by the
-# internal CA for ops.commsecurity.com.au. The app refuses to serve without
-# it rather than falling back to plaintext, which is the behaviour you want
-# and the reason the first boot will fail if you skip this.
+# THE CERTIFICATE travels the same way, as OPS_TLS_CERT and OPS_TLS_KEY in
+# the release JSON: base64 of the PEM files issued by the internal CA for
+# ops.commsecurity.com.au. The app writes them to data/tls/ at boot, key
+# 0600, before it checks them. Renewal is a new release with new values,
+# not a login to the VM. The pair is NOT in the image: an image is pulled
+# by every host and kept forever in the registry, which is no place for a
+# private key. The app refuses to serve without a valid pair rather than
+# falling back to plaintext, which is the behaviour you want.
+#
+#   Produce the values:
+#     base64 -w0 server.crt
+#     base64 -w0 server.key
 
 services:
   cs-ops:
-    image: ghcr.io/commsecurityau/cs-ops@sha256:f818ecee19e22a8d1f409ecae5943d05ab16abedad54f5ec72710e27271df179
+    #image: ghcr.io/commsecurityau/cs-ops@sha256:f818ecee19e22a8d1f409ecae5943d05ab16abedad54f5ec72710e27271df179
+    image: commsecurityau/cs-ops:latest
     container_name: cs-ops
     restart: unless-stopped
 
     environment:
-      OIDC_CLIENT_ID: "36504069610-tcr10vgqqlmng3suoa30o0fuoqbg4lt4.apps.googleusercontent.com"
-      OIDC_REDIRECT_URI: "https://ops.commsecurity.com.au/auth/callback"
-      # Deliberately absent: OIDC_CLIENT_SECRET. Leaving it unset makes the
-      # app read `secret://OIDC_CLIENT_SECRET` from the store on the volume.
-      OPS_PORT: "8443"
-      OPS_TLS: "true"
-      OPS_HOSTED_DOMAIN: "commsecurity.com.au"
-      OPS_BACKUP_INTERVAL_S: "3600"
-      OPS_BACKUP_KEEP: "48"
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:?}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:?}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?}
+      OPS_PORT: ${OPS_PORT:?}
+      OPS_TLS: ${OPS_TLS:?}
+      OPS_HOSTED_DOMAIN: ${OPS_HOSTED_DOMAIN:?}
+      OPS_BACKUP_INTERVAL_S: ${OPS_BACKUP_INTERVAL_S:?}
+      OPS_BACKUP_KEEP: ${OPS_BACKUP_KEEP:?}
+      # Optional. Base64 of the PEM files; the app writes them to
+      # data/tls/ at boot. Leave both out to use a pair already on the
+      # volume. One without the other is refused.
+      OPS_TLS_CERT: ${OPS_TLS_CERT:-}
+      OPS_TLS_KEY: ${OPS_TLS_KEY:-}
 
     # A BIND MOUNT, not a named volume. The snapshots have to be reachable
     # by the off-box sync running on the host, and a named volume puts them

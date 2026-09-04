@@ -469,13 +469,23 @@ class TestTheDeploymentPinsWhatItRuns(unittest.TestCase):
         self.assertIn("@sha256:", line[0],
                       "the image must be pinned by digest, not by tag")
 
-    def test_the_oidc_secret_is_not_in_the_compose_file(self):
-        """It would be readable by anyone who can run `docker inspect`, and
-        it would sit in this file in git. The app resolves `secret://` from
-        the store on the volume instead."""
+    def test_no_secret_value_is_in_the_compose_file(self):
+        """The compose file is in git. Every secret-bearing variable must
+        be a `${...}` reference filled from the generated .env, never a
+        literal -- and the .env itself must be ignored, or the literal just
+        moves one file over."""
         body = self.compose()
-        self.assertNotIn("OIDC_CLIENT_SECRET:", body)
         self.assertNotIn("GOCSPX-", body)
+        self.assertNotIn("-----BEGIN", body)
+        for name in ("OIDC_CLIENT_SECRET", "OPS_TLS_KEY", "OPS_TLS_CERT"):
+            lines = [l.strip() for l in body.splitlines()
+                     if l.strip().startswith(name + ":")]
+            self.assertEqual(len(lines), 1, name)
+            self.assertRegex(lines[0], r"^%s: \$\{%s(:[?-])?\}$" % (name, name),
+                             "%s must be a ${...} reference" % name)
+        with open(os.path.join(ROOT, ".gitignore"), encoding="utf-8") as f:
+            ignored = f.read().splitlines()
+        self.assertIn(".env", ignored)
 
     def test_the_deploy_script_checks_before_it_stops_anything(self):
         """A deployment that takes the service down and THEN finds the

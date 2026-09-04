@@ -15,6 +15,8 @@ Anything that fails here exits non-zero. Non-zero = unhealthy = automatic
 rollback, so a misconfiguration self-reports instead of running degraded.
 """
 
+import base64
+import binascii
 import hashlib
 import json
 import logging
@@ -170,6 +172,59 @@ def cert_not_after(pem_bytes):
             time.strftime("%b %d %H:%M:%S %Y GMT",
                           time.strptime(text, "%Y%m%d%H%M%SZ")))
     raise ValueError(f"unexpected time tag {not_after_tag:#x}")
+
+
+def _decode_pem(label, value):
+    """Base64 of a PEM file, or -- because someone will paste the file
+    itself -- the PEM text as-is. Anything else names the variable."""
+    if value.lstrip().startswith("-----BEGIN"):
+        return value.encode()
+    try:
+        data = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError):
+        data = b""
+    if not data.lstrip().startswith(b"-----BEGIN"):
+        log.error(
+            "%s is set but is not base64 of a PEM file. Produce it with: "
+            "base64 -w0 server.%s", label, "crt" if "CERT" in label else "key")
+        raise SystemExit(2)
+    return data
+
+
+def materialise_tls_from_env(cfg):
+    """Write environment-delivered TLS material to data/tls/ before the
+    file checks run, so a release carries its own certificate instead of
+    depending on a pair someone copied onto the volume by hand.
+
+    Both or neither: half a pair is a mistake, not a fallback, and it must
+    say so rather than silently use a stale key from the volume alongside
+    a new certificate.
+    """
+    if not cfg.tls_cert_b64 and not cfg.tls_key_b64:
+        return False
+    if not (cfg.tls_cert_b64 and cfg.tls_key_b64):
+        missing = "OPS_TLS_KEY" if cfg.tls_cert_b64 else "OPS_TLS_CERT"
+        log.error("OPS_TLS_CERT and OPS_TLS_KEY must be set together; "
+                  "%s is missing.", missing)
+        raise SystemExit(2)
+    cert = _decode_pem("OPS_TLS_CERT", cfg.tls_cert_b64)
+    key = _decode_pem("OPS_TLS_KEY", cfg.tls_key_b64)
+
+    tls_dir = os.path.dirname(cfg.tls_cert)
+    os.makedirs(tls_dir, mode=0o700, exist_ok=True)
+    for path, data, mode in ((cfg.tls_cert, cert, 0o644),
+                             (cfg.tls_key, key, 0o600)):
+        # Write-then-rename: a crash mid-write leaves the old pair intact
+        # rather than an empty key the next boot refuses.
+        tmp = path + ".tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    log.info(json.dumps({"event": "tls_material", "source": "env",
+                         "path": tls_dir}))
+    return True
 
 
 def verify_tls_material(cfg):
@@ -416,6 +471,7 @@ def boot(cfg=None, env=None, serve=True):
     if cfg.tls:
         # Before the server is built, so a bad certificate fails the deploy
         # rather than a request.
+        materialise_tls_from_env(cfg)
         tls_context = verify_tls_material(cfg)
         check_cert_expiry(cfg.tls_cert)
 

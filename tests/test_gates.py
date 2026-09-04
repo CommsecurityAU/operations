@@ -448,6 +448,51 @@ class TestARebuildKeepsWhatItRebuilt(unittest.TestCase):
         self.assertIn("invoiced_prior_cents <= purchase_order_cents", table)
 
 
+class TestTheDeploymentPinsWhatItRuns(unittest.TestCase):
+    """`latest` moves on every push to main.
+
+    On 3 September it moved from a build that had been tested to one that
+    had not, within the hour, over a `.gitignore` commit that changed
+    nothing in the image. A restart six weeks from now must bring back the
+    bytes that were running, not whatever has been merged since.
+    """
+
+    def compose(self):
+        path = os.path.join(ROOT, "docker-compose.yml")
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    def test_the_image_is_pinned_by_digest(self):
+        line = [l for l in self.compose().splitlines()
+                if l.strip().startswith("image:")]
+        self.assertEqual(len(line), 1, "expected exactly one image line")
+        self.assertIn("@sha256:", line[0],
+                      "the image must be pinned by digest, not by tag")
+
+    def test_the_oidc_secret_is_not_in_the_compose_file(self):
+        """It would be readable by anyone who can run `docker inspect`, and
+        it would sit in this file in git. The app resolves `secret://` from
+        the store on the volume instead."""
+        body = self.compose()
+        self.assertNotIn("OIDC_CLIENT_SECRET:", body)
+        self.assertNotIn("GOCSPX-", body)
+
+    def test_the_deploy_script_checks_before_it_stops_anything(self):
+        """A deployment that takes the service down and THEN finds the
+        certificate missing has turned an upgrade into an outage."""
+        path = os.path.join(ROOT, "tools", "deploy.sh")
+        with open(path, encoding="utf-8") as f:
+            body = f.read()
+        checks = body.index("preflight")
+        swap = body.index("compose up -d") if "compose up -d" in body \
+            else body.index("up -d")
+        self.assertLess(checks, swap,
+                        "the preflight runs after the swap")
+        for needed in ("server.crt", "server.key", "store.json",
+                       "checkend", "--rollback"):
+            self.assertIn(needed, body, f"deploy.sh does not check {needed}")
+
+
 class TestNoBackupScriptCopiesTheLiveDatabase(unittest.TestCase):
     """A WAL database copied mid-transaction yields a `.db` and a `-wal`
     that disagree, and the copy fails only at RESTORE — on the day you
@@ -536,7 +581,17 @@ class TestFilesAreWhereTheyBelong(unittest.TestCase):
                     # Machine-specific and gitignored: a real OIDC client
                     # id, a different port. Belongs at the root because
                     # dev.ps1 dot-sources it from there.
-                    "dev.local.ps1"}
+                    "dev.local.ps1",
+                    # `docker compose` looks for this beside itself and
+                    # nowhere else, so the root is where it goes.
+                    "docker-compose.yml",
+                    # Written by tools/deploy.sh to record the digest to
+                    # roll back to. Gitignored.
+                    ".deploy-previous-digest",
+                    # The local environment file for `--env-file`.
+                    # Gitignored; the secret lives here rather than on a
+                    # command line.
+                    ".env.local"}
 
     def test_nothing_stray_at_the_repo_root(self):
         """Loose files copied to the root instead of into `ops/` or

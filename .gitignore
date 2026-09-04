@@ -11,3 +11,4 @@ dev.local.ps1
 imports/
 
 .env.local
+.deploy-previous-digest

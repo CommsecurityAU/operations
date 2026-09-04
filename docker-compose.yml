@@ -1,0 +1,82 @@
+# CS-OP on the internal VM (CS-OP-RUN-002).
+#
+# ONE service, ONE volume, no reverse proxy, no sidecar. The application
+# terminates TLS itself and serves its own static files, so there is nothing
+# between it and the network to misconfigure -- and nothing else to patch.
+#
+# BY DIGEST, NOT BY TAG. `latest` moves on every push to main: it moved from
+# a tested build to an untested one within the hour on 3 September, over a
+# `.gitignore` commit. A restart six weeks from now must bring back the
+# bytes that were running, not whatever has been merged since. Upgrading is
+# then a deliberate act -- change the digest, `up -d`, and roll back by
+# putting the old digest back.
+#
+# THE OIDC SECRET IS NOT HERE. It lives in the secret store on the volume,
+# 0600 and owned by the app user, and the app resolves `secret://` at boot.
+# An environment variable would be readable by anyone who can run
+# `docker inspect`, and would sit in this file in git.
+#
+#   Put it there once:
+#     sudo install -d -o 1000 -g 1000 -m 700 /srv/cs-ops/data/secrets
+#     printf '{"OIDC_CLIENT_SECRET":"%s"}' 'THE-SECRET' \
+#       | sudo -u '#1000' tee /srv/cs-ops/data/secrets/store.json >/dev/null
+#     sudo chmod 600 /srv/cs-ops/data/secrets/store.json
+#
+# THE CERTIFICATE goes at data/tls/server.crt and server.key, issued by the
+# internal CA for ops.commsecurity.com.au. The app refuses to serve without
+# it rather than falling back to plaintext, which is the behaviour you want
+# and the reason the first boot will fail if you skip this.
+
+services:
+  cs-ops:
+    image: ghcr.io/commsecurityau/cs-ops@sha256:f818ecee19e22a8d1f409ecae5943d05ab16abedad54f5ec72710e27271df179
+    container_name: cs-ops
+    restart: unless-stopped
+
+    environment:
+      OIDC_CLIENT_ID: "36504069610-tcr10vgqqlmng3suoa30o0fuoqbg4lt4.apps.googleusercontent.com"
+      OIDC_REDIRECT_URI: "https://ops.commsecurity.com.au/auth/callback"
+      # Deliberately absent: OIDC_CLIENT_SECRET. Leaving it unset makes the
+      # app read `secret://OIDC_CLIENT_SECRET` from the store on the volume.
+      OPS_PORT: "8443"
+      OPS_TLS: "true"
+      OPS_HOSTED_DOMAIN: "commsecurity.com.au"
+      OPS_BACKUP_INTERVAL_S: "3600"
+      OPS_BACKUP_KEEP: "48"
+
+    # A BIND MOUNT, not a named volume. The snapshots have to be reachable
+    # by the off-box sync running on the host, and a named volume puts them
+    # somewhere only Docker knows about.
+    volumes:
+      - ./data:/data
+
+    ports:
+      # Bound to all interfaces, but the VM is on 172.16/12 and reachable
+      # only over the VPN. If that ever changes, this line is the one to
+      # revisit first.
+      - "8443:8443"
+
+    # The app is single-process Python with SQLite; it does not need a
+    # gigabyte. A limit means a runaway query is a slow request rather than
+    # a VM that stops responding to SSH.
+    mem_limit: 1g
+    pids_limit: 256
+
+    # Nothing in here writes outside /data.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # `python3 -m ops.main` is PID 1 and handles SIGTERM directly, so a
+    # normal stop takes milliseconds rather than the default 10 s timeout.
+    stop_grace_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

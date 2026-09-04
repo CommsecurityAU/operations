@@ -53,8 +53,9 @@ than remembered.
 1. **[SITE-VM]** — hostname, how you reach it, whether Docker is installed
 2. **[SITE-FLEET]** — how a release is created in the fleet manager and what
    it expects
-3. **[SITE-CA]** — how a certificate for `ops.commsecurity.com.au` is
-   requested, and where it is installed
+3. ~~**[SITE-CA]**~~ — answered 4 September 2026: there is no pre-existing
+   internal CA. `tools/issue_cert.sh` creates one, on the operator's own
+   machine, and issues the server pair; see §2b for where and when
 4. **[SITE-BACKUP]** — what `/mnt/backup/cs-ops` actually is
 
 ---
@@ -70,8 +71,9 @@ than remembered.
 - [ ] **`OIDC_CLIENT_SECRET` in the company password manager.** The backup
       deliberately excludes `secrets/`, so if it exists only on the volume,
       a volume loss is unrecoverable without re-registering (CS-OP-RUN-001)
-- [ ] **Certificate and key as a matched pair** from the internal CA
-      **[SITE-CA]**
+- [ ] **Certificate and key as a matched pair**, issued with
+      `tools/issue_cert.sh` on your own machine (§2b), and the CA root
+      pushed to staff machines so browsers trust it
 - [ ] **A release tag pushed**, so the N-1 gate has a baseline
 
 **What is deliberately NOT ready, and should stay that way:** no
@@ -143,15 +145,37 @@ docker run --rm -v /var/lib/cs-ops:/data ghcr.io/commsecurityau/cs-ops:<digest> 
 
 ### 2b. The certificate
 
-**Preferred: deliver it in the release.** Put the pair in the release
-environment as base64 and the app writes it to `/var/lib/cs-ops/tls/` at boot,
-key 0600, before the checks below run. Renewal is then a new release, not
-a login to the host, and a restore needs nothing copied by hand.
+**Where and when.** On your own machine, not the VM, before creating the
+release that will carry it. There is no pre-existing internal CA;
+`tools/issue_cert.sh` creates one on first run and issues the server
+pair on every run:
 
 ```
-OPS_TLS_CERT=$(base64 -w0 server.crt)
-OPS_TLS_KEY=$(base64 -w0 server.key)
+./tools/issue_cert.sh                                   # CA in ~/cs-ops-ca
+./tools/issue_cert.sh ~/cs-ops-ca ops.commsecurity.com.au 172.16.x.x   # also valid by IP
 ```
+
+It prints `OPS_TLS_CERT=...` and `OPS_TLS_KEY=...`, each one line of about
+2,300 characters, ready for the release JSON (§3). Three things follow
+from it:
+
+1. **`~/cs-ops-ca` is the CA.** Its `ca.key` signs everything staff
+   browsers will trust for this host. Put the directory in the company
+   password manager and nowhere else; it never goes near the VM.
+2. **`ca.crt` must reach every staff browser** or sign-in shows a
+   certificate warning. Push it through Workspace device management
+   (Devices → Networks → Certificates), or install it by hand.
+3. **`ops.commsecurity.com.au` must resolve** to the VM's VPN address on
+   staff machines, or the name on the certificate never matches.
+
+**Renewal owner: whoever holds the CA directory.** The leaf is valid 730
+days; the app warns at boot and hourly from 30 days out. Renewal is
+running the script again and creating a release with the new values.
+
+**Delivery.** Put the pair in the release environment as base64 and the
+app writes it to `/var/lib/cs-ops/tls/` at boot, key 0600, before the
+checks below run. Renewal is then a new release, not a login to the host,
+and a restore needs nothing copied by hand.
 
 Both or neither: one without the other exits 2 naming the missing one,
 rather than pairing a new certificate with a stale key from the volume.

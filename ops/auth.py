@@ -375,7 +375,7 @@ class Oidc:
 
 
 # ---------------------------------------------------------- provisioning
-def sign_in(db, claims):
+def sign_in(db, claims, bootstrap_email=None):
     """Identity is keyed on `sub`, NEVER email: Workspace addresses get
     reassigned and renamed, so an email-keyed row hands a departed
     employee's grants to their replacement.
@@ -383,11 +383,26 @@ def sign_in(db, claims):
     First sign-in provisions `viewer` with ZERO entity grants (ADR-18). The
     `hd` check proves someone is staff; it says nothing about whether they
     should see money, and shared mailboxes and service accounts all pass it.
+
+    THE ONE EXCEPTION: a system with no administrator cannot be administered
+    -- the first deploy, and every restore into an empty volume, produced
+    exactly that. `bootstrap_email` (OPS_BOOTSTRAP_ADMIN) names the person
+    who gets every role on every entity, and ONLY while no active admin
+    exists anywhere. Matching on email is deliberate here and bounded: the
+    address is verified by Google and confined to the Workspace domain by
+    the `hd` check, the match happens once, and the moment an admin exists
+    the variable is inert. Audited as `bootstrap_admin`.
     """
-    return db.upsert_user(
+    user = db.upsert_user(
         claims["sub"],
         claims["email"],
         claims.get("name") or claims["email"])
+    if (bootstrap_email
+            and claims["email"].strip().lower() == bootstrap_email.strip().lower()
+            and not db.active_admin_exists()):
+        db.bootstrap_admin(user["id"], ROLES)
+        user["bootstrapped"] = True
+    return user
 
 
 # --------------------------------------------------- request-time checks

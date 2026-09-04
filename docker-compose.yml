@@ -63,6 +63,11 @@ services:
       # volume. One without the other is refused.
       OPS_TLS_CERT: ${OPS_TLS_CERT:-}
       OPS_TLS_KEY: ${OPS_TLS_KEY:-}
+      # Optional. The Workspace address that receives every role on every
+      # entity at sign-in, ONLY while the system has no active admin at
+      # all -- the first deploy, or a restore into an empty volume. Once
+      # an admin exists this is inert, so it is safe to leave set.
+      OPS_BOOTSTRAP_ADMIN: ${OPS_BOOTSTRAP_ADMIN:-}
 
     # AN ABSOLUTE BIND MOUNT, never a relative one. Raven-Fleet runs this
     # file from a staging directory that is wiped when the next release

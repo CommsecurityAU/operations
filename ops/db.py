@@ -454,6 +454,45 @@ class Db:
                    VALUES (?,?,'role_grant','user',?,?)""",
                 (now, actor_id, str(user_id), f"entity={entity_id} role={role}"))
 
+    def active_admin_exists(self):
+        """Is there ANY active admin on ANY entity? The bootstrap only
+        runs while the answer is no, so a system that already has an
+        administrator can never be re-seeded from an environment variable."""
+        return bool(self.scalar(
+            """SELECT COUNT(*) FROM user_entity_role r
+               JOIN users u ON u.id = r.user_id
+               WHERE r.role = 'admin' AND u.is_active = 1"""))
+
+    def bootstrap_admin(self, user_id, roles):
+        """Every role on every active entity, self-granted, ONE audit line
+        per grant plus one naming the bootstrap. This is the seed an empty
+        system needs before the admin UI can be used at all; after it, all
+        further grants go through that UI and its audit trail."""
+        now = int(time.time())
+        entities = [r["id"] for r in self.query(
+            "SELECT id FROM entity WHERE is_active = 1 ORDER BY id")]
+        with self._tx() as c:
+            c.execute(
+                """INSERT INTO audit_log (ts, actor_user_id, action, target_type,
+                                          target_id, detail)
+                   VALUES (?,?,'bootstrap_admin','user',?,?)""",
+                (now, user_id, str(user_id),
+                 f"entities={entities} roles={list(roles)}"))
+            for entity_id in entities:
+                for role in roles:
+                    c.execute(
+                        """INSERT OR IGNORE INTO user_entity_role
+                           (user_id, entity_id, role, granted_by, granted_ts)
+                           VALUES (?,?,?,?,?)""",
+                        (user_id, entity_id, role, user_id, now))
+                    c.execute(
+                        """INSERT INTO audit_log (ts, actor_user_id, action,
+                                                  target_type, target_id, detail)
+                           VALUES (?,?,'role_grant','user',?,?)""",
+                        (now, user_id, str(user_id),
+                         f"entity={entity_id} role={role} via=bootstrap"))
+        return entities
+
     # ---------------------------------------------------------- suppliers
     SUPPLIER_FIELDS = ("name", "itrade_ref", "xero_ref", "abn",
                        "default_currency", "payment_terms_days",

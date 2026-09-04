@@ -218,9 +218,17 @@ the volume remains the fallback when `OIDC_CLIENT_SECRET` is unset).
   "OPS_BACKUP_INTERVAL_S": "3600",
   "OPS_BACKUP_KEEP": "48",
   "OPS_TLS_CERT": "<base64 -w0 server.crt>",
-  "OPS_TLS_KEY": "<base64 -w0 server.key>"
+  "OPS_TLS_KEY": "<base64 -w0 server.key>",
+  "OPS_BOOTSTRAP_ADMIN": "richard@commsecurity.com.au"
 }
 ```
+
+`OPS_BOOTSTRAP_ADMIN` names who receives every role on every entity at
+their next sign-in, **only while the system has no active admin at all**.
+The first deploy produced one viewer and no way to promote them; a restore
+into an empty volume does the same. Once an admin exists the variable is
+inert, so it stays in the release. The grant is audited as
+`bootstrap_admin`.
 
 The two TLS values are each one line of roughly two thousand characters.
 A value of 34 characters is the placeholder text, not a certificate, and

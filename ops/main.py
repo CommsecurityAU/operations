@@ -430,7 +430,10 @@ def build_router(db, oidc, key, cfg):
             # The reason is logged; the browser is told only that it failed.
             log.warning("sign-in refused: %s", e)
             raise HttpError(403, "sign-in refused")
-        u = auth.sign_in(db, claims)
+        u = auth.sign_in(db, claims, cfg.bootstrap_admin_email)
+        if u.get("bootstrapped"):
+            log.warning(json.dumps({"event": "bootstrap_admin",
+                                    "user_id": u["id"], "email": u["email"]}))
         token = auth.mint_session(key, u["id"], u["token_version"])
         # A SECOND cookie with its own short life when this was an
         # elevation. Two `Set-Cookie` headers need two values, and joining

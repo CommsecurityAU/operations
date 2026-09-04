@@ -323,6 +323,37 @@ class TestAuthorise(unittest.TestCase):
         u = auth.sign_in(self.db, {"sub": "999", "email": f"x@{DOMAIN}"})
         self.assertEqual(u["display_name"], f"x@{DOMAIN}")
 
+    # ---- bootstrap: the first deploy had one viewer and no way to promote them
+    def test_bootstrap_grants_every_role_on_every_entity_once(self):
+        u = auth.sign_in(self.db, {"sub": "108154", "email": f"R@{DOMAIN}"},
+                         bootstrap_email=f"r@{DOMAIN}")
+        self.assertTrue(u.get("bootstrapped"))
+        got = {(r["entity_id"], r["role"]) for r in self.db.roles_for(u["id"])}
+        entities = [r["id"] for r in self.db.query("SELECT id FROM entity")]
+        self.assertEqual(got, {(e, r) for e in entities for r in auth.ROLES})
+        self.assertEqual(self.db.scalar(
+            "SELECT COUNT(*) FROM audit_log WHERE action = 'bootstrap_admin'"), 1)
+
+    def test_bootstrap_is_inert_once_any_admin_exists(self):
+        """A restore into a volume that already has an admin must not hand
+        a second person everything because a variable was left set."""
+        other = auth.sign_in(self.db, {"sub": "2", "email": f"o@{DOMAIN}"})
+        self.db.grant_role(other["id"], 1, "admin", other["id"])
+        u = auth.sign_in(self.db, {"sub": "108154", "email": f"r@{DOMAIN}"},
+                         bootstrap_email=f"r@{DOMAIN}")
+        self.assertFalse(u.get("bootstrapped"))
+        self.assertEqual(self.db.roles_for(u["id"]), [])
+
+    def test_bootstrap_ignores_everyone_else(self):
+        u = auth.sign_in(self.db, {"sub": "3", "email": f"someone@{DOMAIN}"},
+                         bootstrap_email=f"r@{DOMAIN}")
+        self.assertFalse(u.get("bootstrapped"))
+        self.assertEqual(self.db.roles_for(u["id"]), [])
+
+    def test_bootstrap_does_nothing_when_unset(self):
+        u = auth.sign_in(self.db, {"sub": "108154", "email": f"r@{DOMAIN}"})
+        self.assertEqual(self.db.roles_for(u["id"]), [])
+
 
 class TestFailuresCarryTheRightStatus(unittest.TestCase):
     """401 means authenticate; 403 means you are authenticated and the answer

@@ -42,6 +42,10 @@ class Config:
     tls_cert_b64: str = ""
     tls_key_b64: str = ""
 
+    # The person who gets every role on every entity at sign-in, ONLY while
+    # no active admin exists anywhere (auth.sign_in). Empty disables it.
+    bootstrap_admin_email: str = ""
+
     # backup
     backup_interval_s: int = 3600
     backup_keep: int = 48
@@ -132,6 +136,7 @@ def from_env(env=None):
         hosted_domain=env.get("OPS_HOSTED_DOMAIN", "commsecurity.com.au"),
         tls_cert_b64=env.get("OPS_TLS_CERT", "").strip(),
         tls_key_b64=env.get("OPS_TLS_KEY", "").strip(),
+        bootstrap_admin_email=env.get("OPS_BOOTSTRAP_ADMIN", "").strip(),
         backup_interval_s=int(env.get("OPS_BACKUP_INTERVAL_S", "3600")),
         backup_keep=int(env.get("OPS_BACKUP_KEEP", "48")),
     )

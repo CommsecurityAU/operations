@@ -473,9 +473,13 @@ class TestTheDeploymentPinsWhatItRuns(unittest.TestCase):
                  if l.strip().startswith("image:")]
         self.assertEqual(len(lines), 1, "expected exactly one image line")
         ref = lines[0].split(":", 1)[1].strip()
-        self.assertTrue(ref.startswith("ghcr.io/commsecurityau/cs-ops"),
-                        "CI pushes to ghcr.io/commsecurityau/cs-ops, not %r" % ref)
-        self.assertRegex(ref, r"(@sha256:[0-9a-f]{64}|:[A-Za-z0-9._-]+)$",
+        # The bare repository path, no registry: Raven-Fleet resolves it
+        # against its own mirror (release 3 ran as
+        # 100.64.0.1:5000/commsecurityau/cs-ops@sha256:...). A registry
+        # prefix here is one more thing the fleet manager has to strip.
+        self.assertTrue(ref.startswith("commsecurityau/cs-ops"),
+                        "expected the bare repository path, got %r" % ref)
+        self.assertRegex(ref, r"^commsecurityau/cs-ops(@sha256:[0-9a-f]{64}|:[A-Za-z0-9._-]+)$",
                          "the image needs an explicit tag or digest")
 
     DATA_HOST_PATH = "/var/lib/cs-ops"

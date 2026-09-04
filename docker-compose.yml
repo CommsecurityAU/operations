@@ -10,8 +10,10 @@
 # must bring back the bytes that were running, not whatever has been merged
 # since. Raven-Fleet rewrites the `repo:tag` below to a digest when it
 # creates the release (CS-OP-RUN-002 §1), so this file may carry a tag and
-# the release still means exactly those bytes forever. Deploying by hand
-# with tools/deploy.sh? Pass it a digest; it will write it here.
+# the release still means exactly those bytes forever. The path is bare --
+# no registry -- because the fleet manager resolves it against its own
+# mirror and pins the digest there. Deploying by hand with tools/deploy.sh?
+# Pass it a digest; it pulls from ghcr.io and writes the digest here.
 #
 # ALL CONFIGURATION COMES FROM .env, next to this file. Raven-Fleet writes
 # it from the release's environment-variable JSON; Compose reads it and
@@ -43,7 +45,7 @@
 
 services:
   cs-ops:
-    image: ghcr.io/commsecurityau/cs-ops:latest
+    image: commsecurityau/cs-ops:latest
     container_name: cs-ops
     restart: unless-stopped
 

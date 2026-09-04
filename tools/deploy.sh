@@ -116,9 +116,16 @@ say "image fingerprint $fingerprint"
 
 # --------------------------------------------------------------------- swap
 if [ "$target" != "$current" ]; then
-    echo "${current#*@}" > "$PREVIOUS"
+    # Only a digest can be rolled back to. A tag in the file (the fleet
+    # manager pins that itself) is not a place to return to, so do not
+    # record one as if it were.
+    case "$current" in
+        *@sha256:*) echo "${current#*@}" > "$PREVIOUS"
+                    note="previous recorded for --rollback" ;;
+        *)          note="previous was a tag, nothing recorded for --rollback" ;;
+    esac
     sed -i "s|image: .*|image: $target|" docker-compose.yml
-    say "docker-compose.yml now pins $target (previous recorded for --rollback)"
+    say "docker-compose.yml now pins $target ($note)"
 fi
 
 # A snapshot BEFORE the new code touches the database. Migrations are

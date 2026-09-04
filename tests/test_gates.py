@@ -462,12 +462,21 @@ class TestTheDeploymentPinsWhatItRuns(unittest.TestCase):
         with open(path, encoding="utf-8") as f:
             return f.read()
 
-    def test_the_image_is_pinned_by_digest(self):
-        line = [l for l in self.compose().splitlines()
-                if l.strip().startswith("image:")]
-        self.assertEqual(len(line), 1, "expected exactly one image line")
-        self.assertIn("@sha256:", line[0],
-                      "the image must be pinned by digest, not by tag")
+    def test_the_image_is_pinned_or_pinnable(self):
+        """Raven-Fleet rewrites `repo:tag` to a digest when it creates the
+        release (CS-OP-RUN-002 §1), so the file in git may carry a tag --
+        the release still means exactly those bytes forever. What it may
+        NOT carry: no tag at all (an implicit `latest` nobody chose), a
+        registry CI does not push to, or a second image line the fleet
+        manager would rewrite as well."""
+        lines = [l.strip() for l in self.compose().splitlines()
+                 if l.strip().startswith("image:")]
+        self.assertEqual(len(lines), 1, "expected exactly one image line")
+        ref = lines[0].split(":", 1)[1].strip()
+        self.assertTrue(ref.startswith("ghcr.io/commsecurityau/cs-ops"),
+                        "CI pushes to ghcr.io/commsecurityau/cs-ops, not %r" % ref)
+        self.assertRegex(ref, r"(@sha256:[0-9a-f]{64}|:[A-Za-z0-9._-]+)$",
+                         "the image needs an explicit tag or digest")
 
     def test_no_secret_value_is_in_the_compose_file(self):
         """The compose file is in git. Every secret-bearing variable must

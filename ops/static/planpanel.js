@@ -213,6 +213,9 @@ export async function planPanel(project, canWrite, onChange, periods) {
     return sum + (found ? found.amount_cents : 0);
   }, 0);
 
+  // The CSP is `default-src 'self'`, so a `style` ATTRIBUTE is silently
+  // dropped; a width only the code knows goes through the style object.
+  const sized = (el, minWidth) => { el.style.minWidth = minWidth; return el; };
   return h("div", { class: "plan-panel" },
     h("div", { class: "po-panel-head" },
       h("h3", null, `Claim plan \u00b7 ${fmt.money(plan.contract_value_cents)}`),
@@ -290,7 +293,13 @@ export async function planPanel(project, canWrite, onChange, periods) {
         : null),
     plan.items.length
       ? h("div", { class: "table-wrap" },
-          h("table", { class: "plan-grid" },
+          // Fixed layout (base.css) takes column widths from the header
+          // row, so the table has to be told how wide it is or the months
+          // are squeezed until the amounts collide. Item column plus a
+          // money-sized column for Value, Unspread and every month; when
+          // that is wider than the panel the wrap scrolls, as it always
+          // has.
+          sized(h("table", { class: "plan-grid" },
             h("thead", null, h("tr", null,
               h("th", null, "Item"),
               h("th", { class: "num" }, "Value"),
@@ -310,7 +319,7 @@ export async function planPanel(project, canWrite, onChange, periods) {
                   claim && (claim.status === "invoiced" || claim.status === "paid")
                     ? h("span", { class: "locked-mark", title: "invoiced" }, " \u25cf")
                     : null);
-              })))))
+              })))), `calc(44ch + ${months.length + 2} * 14ch)`))
       // Never report an empty plan as an empty project: these claims exist
       // and saying nothing about them is how a screen loses trust.
       : plan.unplanned_claims && plan.unplanned_claims.n

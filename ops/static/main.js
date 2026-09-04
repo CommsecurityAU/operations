@@ -44,10 +44,26 @@ async function boot() {
     mount(status, document.createTextNode("not signed in"));
     return;
   }
-  mount(identity, h("span", null,
-    me.display_name,
-    h("span", { class: "roles" },
-      me.roles.length ? ` ${me.roles.map((r) => r.role).join(" ")}` : " no access")));
+  // Roles are per entity, so someone holding all six on three entities
+  // has eighteen rows; the header names each role once, in a fixed order,
+  // because "admin approver finance" three times over reads as a fault.
+  const ORDER = ["admin", "approver", "finance", "payroll", "operations", "viewer"];
+  const roleNames = [...new Set(me.roles.map((r) => r.role))]
+    .sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
+  const signOut = h("button", { type: "button", class: "signout",
+                                title: "End this session on this browser",
+                                onclick: async () => {
+    // The server clears the cookie; reloading then lands on the
+    // "Not signed in" screen with its Sign in button. No redirect here
+    // for the same reason there is none above: keep failures visible.
+    try { await api("POST", "/logout"); }
+    finally { location.reload(); }
+  } }, "Sign out");
+  mount(identity, h("span", { class: "who" },
+    h("span", null, me.display_name,
+      h("span", { class: "roles" },
+        roleNames.length ? ` ${roleNames.join(" ")}` : " no access")),
+    signOut));
 
   // A tab for a screen this person cannot open is a tab that goes to a
   // refusal. The server is what actually refuses -- hiding a link is not a

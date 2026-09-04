@@ -81,6 +81,18 @@ a:hover { text-decoration: underline; }
   font-size: var(--fs-micro);
   color: var(--t-2);
 }
+.identity .who { display: inline-flex; align-items: center; gap: var(--u3); }
+/* Quiet on purpose: it sits in the brand bar next to the name and is used
+ * once a day at most, so it should not compete with the navigation. */
+button.signout {
+  height: calc(var(--h-control) - 8px);
+  padding: 0 var(--u2);
+  font-size: var(--fs-micro);
+  background: transparent;
+  color: var(--t-2);
+  border-color: var(--line-strong);
+}
+button.signout:hover:not(:disabled) { color: var(--t-0); background: var(--s-3); }
 
 .main { overflow: auto; padding: var(--u4); }
 
@@ -339,7 +351,13 @@ tbody td.text {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-tbody td.text-wide { max-width: 40ch; }
+/* The same truncation, or a long name overflows INTO the next column: it
+ * did, in the claim plan, where an item name ran across the value cell. */
+tbody td.text-wide {
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* On a screen wide enough to afford it, let the long columns breathe. */
 @media (min-width: 1500px) {
@@ -1017,8 +1035,42 @@ p.note { max-width: 70ch; font-size: var(--fs-small); margin-top: var(--u3); }
 .plan-panel { margin-top: var(--u4); }
 /* Items down, months across: the shape of the workbook this replaces.
  * Showing it any other way would mean learning a new one. */
-table.plan-grid { font-size: var(--fs-small); }
+/* FIXED layout, the one grid that uses it. This table sits inside the
+ * project register's detail row, so its container is sized by the outer
+ * table rather than the screen, and under auto layout the item column was
+ * handed its minimum no matter what width it was given -- a percentage, a
+ * length, a colgroup, nothing moved it. Fixed layout takes the widths from
+ * the header row and asks no further questions. */
+table.plan-grid { font-size: var(--fs-small); table-layout: fixed; }
 table.plan-grid th { white-space: nowrap; }
+/* The item name is the row's meaning -- "Cloud Licenses 25%, Project
+ * Management 10%, Commissioning 10%" -- and an ellipsis hides exactly the
+ * part that distinguishes one row from the next. So this ONE column wraps.
+ * The months stay nowrap and shrink-to-content, so wrapping costs height,
+ * never a column. */
+table.plan-grid th:first-child,
+table.plan-grid tbody td.text-wide {
+  /* Under fixed layout this IS the column: wide enough that a typical
+   * item name takes two lines, not five. planpanel.js sizes the table
+   * from the same figure, so change both or neither. */
+  width: 44ch;
+}
+/* Under fixed layout `.num`'s 1% would make the months one percent wide.
+ * Auto lets them share what the item column leaves, evenly, which is also
+ * how the workbook reads. */
+table.plan-grid thead th.num,
+table.plan-grid tbody td.num { width: auto; }
+table.plan-grid tbody td.text-wide {
+  white-space: normal;
+  overflow: visible;
+  max-width: none;
+  line-height: 1.35;
+}
+table.plan-grid tbody td.text-wide button.link-button {
+  white-space: normal;
+  text-align: left;
+  line-height: inherit;
+}
 table.plan-grid tfoot th {
   border-top: 1px solid var(--line-strong);
   font-family: var(--font-data);
